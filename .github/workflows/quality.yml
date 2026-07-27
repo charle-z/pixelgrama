@@ -24,3 +24,35 @@ jobs:
       - run: go vet ./...
       - run: CGO_ENABLED=0 go build -trimpath ./cmd/pixelgrama
       - run: git diff --check
+      - name: Build deployment image
+        run: |
+          docker build \
+            --build-arg COMMIT="${GITHUB_SHA}" \
+            --build-arg REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --build-arg PR_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${{ github.event.pull_request.number }}" \
+            --tag pixelgrama:ci \
+            .
+      - name: Smoke hardened Compose runtime
+        env:
+          PIXELGRAMA_IMAGE: pixelgrama:ci
+        run: |
+          cleanup() {
+            docker compose logs --no-color || true
+            docker compose down --volumes --remove-orphans || true
+          }
+          trap cleanup EXIT
+          docker compose up --detach
+          for attempt in $(seq 1 30); do
+            state="$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps --quiet pixelgrama)" 2>/dev/null || true)"
+            if [ "${state}" = healthy ]; then
+              break
+            fi
+            if [ "${state}" = unhealthy ]; then
+              docker compose logs --no-color
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps --quiet pixelgrama)")" = healthy
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/version \
+            | jq -e --arg sha "${GITHUB_SHA}" '.commit == $sha'
