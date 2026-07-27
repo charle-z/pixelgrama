@@ -64,4 +64,6 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://127.0.0.1:18080/healthz | jq -e '.status == "ok"'
+          curl --fail --silent http://127.0.0.1:18080/readyz | jq -e '.status == "ready"'
+          docker exec pixelgrama-smoke /usr/local/bin/pixelgrama backup --output /data/image-smoke-backup.db
           curl --fail --silent http://127.0.0.1:18080/version | jq -e --arg sha "${SHA}" '.commit == $sha'

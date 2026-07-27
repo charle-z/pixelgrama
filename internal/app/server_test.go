@@ -88,8 +88,10 @@ func TestExactRoutesAndMethods(t *testing.T) {
 		{http.MethodPut, "/postcard", http.StatusMethodNotAllowed},
 		{http.MethodPost, "/wall", http.StatusMethodNotAllowed},
 		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/readyz", http.StatusMethodNotAllowed},
 		{http.MethodPost, "/version", http.StatusMethodNotAllowed},
 		{http.MethodGet, "/healthz", http.StatusOK},
+		{http.MethodGet, "/readyz", http.StatusOK},
 		{http.MethodGet, "/version", http.StatusOK},
 		{http.MethodGet, "/wall", http.StatusOK},
 	}
@@ -116,7 +118,7 @@ func TestRootRedirectsPermanentlyToWall(t *testing.T) {
 
 func TestSecurityHeadersAreExplicitOnEveryResponse(t *testing.T) {
 	handler, _ := newTestHandler(t, 100)
-	for _, target := range []string{"/healthz", "/version", "/wall", "/missing"} {
+	for _, target := range []string{"/healthz", "/readyz", "/version", "/wall", "/missing"} {
 		t.Run(target, func(t *testing.T) {
 			response := request(handler, http.MethodGet, target, nil)
 			csp := response.Header().Get("Content-Security-Policy")
@@ -345,6 +347,7 @@ func TestTrustedProxyHeaderIsIgnoredUnlessConfigured(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/postcard", bytes.NewReader(postcardBody(t, i, nil)))
 		req.RemoteAddr = "192.0.2.50:1234"
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Forwarded-For", fmt.Sprintf("198.51.100.%d", i+1))
 		handler.ServeHTTP(recorder, req)
 		want := http.StatusCreated

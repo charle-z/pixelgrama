@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -23,35 +22,46 @@ var (
 )
 
 func main() {
-	address := envOrDefault("ADDR", ":8080")
-	databasePath := envOrDefault("DB_PATH", "/data/pixelgrama.db")
-	trustProxy := envBool("TRUST_PROXY", false)
-
-	if err := prepareRuntime(databasePath, systemRuntimeOps{}); err != nil {
+	config, err := loadConfig()
+	if err != nil {
+		log.Fatalf("configure runtime: %v", err)
+	}
+	if err := prepareRuntime(config.databasePath, systemRuntimeOps{}); err != nil {
 		log.Fatalf("prepare runtime: %v", err)
 	}
-	database, err := store.Open(databasePath)
+	if len(os.Args) > 1 {
+		if os.Args[1] != "backup" {
+			log.Fatalf("unknown command %q", os.Args[1])
+		}
+		if err := runBackup(context.Background(), config, os.Args[2:], os.Stdout); err != nil {
+			log.Fatalf("backup: %v", err)
+		}
+		return
+	}
+
+	database, err := store.Open(config.databasePath)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
 	defer database.Close()
 
 	handler, err := app.New(app.Config{
-		Store:      database,
-		Limiter:    ratelimit.New(5, time.Minute, 10000, time.Now),
-		Commit:     Commit,
-		RepoURL:    RepoURL,
-		PRURL:      PRURL,
-		Now:        time.Now,
-		BodyLimit:  4096,
-		TrustProxy: trustProxy,
+		Store:             database,
+		Limiter:           ratelimit.New(config.rateLimitRequests, config.rateLimitWindow, config.rateLimitMaxEntries, time.Now),
+		Commit:            Commit,
+		RepoURL:           RepoURL,
+		PRURL:             PRURL,
+		Now:               time.Now,
+		BodyLimit:         4096,
+		TrustedProxyCIDRs: config.trustedProxyCIDRs,
+		RateLimitWindow:   config.rateLimitWindow,
 	})
 	if err != nil {
 		log.Fatalf("configure server: %v", err)
 	}
 
 	server := &http.Server{
-		Addr:              address,
+		Addr:              config.address,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -71,7 +81,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("pixelgrama commit=%s listening=%s", Commit, address)
+	log.Printf("pixelgrama commit=%s listening=%s", Commit, config.address)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("serve: %v", err)
 	}
@@ -82,16 +92,4 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-func envBool(name string, fallback bool) bool {
-	value := os.Getenv(name)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		log.Fatalf("%s must be a boolean", name)
-	}
-	return parsed
 }
