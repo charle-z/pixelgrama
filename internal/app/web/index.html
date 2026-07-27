@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixelgrama</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<header class="masthead">
+<div>
+<p class="prompt">C:\PUBLIC\PIXELGRAMA&gt;</p>
+<h1>PIXELGRAMA</h1>
+<p data-es="Muro público de postales en pixel art" data-en="Public pixel-art postcard wall">Muro público de postales en pixel art</p>
+</div>
+<nav aria-label="Language">
+<button id="lang-es" type="button" aria-pressed="true">ES</button>
+<button id="lang-en" type="button" aria-pressed="false">EN</button>
+</nav>
+</header>
+<main>
+<section class="editor-panel" aria-labelledby="editor-title">
+<div class="section-bar">
+<h2 id="editor-title" data-es="01 // DIBUJAR" data-en="01 // DRAW">01 // DIBUJAR</h2>
+<span data-es="16×16 · 16 COLORES VGA" data-en="16×16 · 16 VGA COLORS">16×16 · 16 COLORES VGA</span>
+</div>
+<div class="editor-layout">
+<div class="canvas-shell">
+<canvas id="editor" width="512" height="512" aria-label="Lienzo de 16 por 16 píxeles"></canvas>
+</div>
+<div class="controls">
+<label data-es="COLOR ACTIVO" data-en="ACTIVE COLOR">COLOR ACTIVO</label>
+<div id="palette" class="palette" role="group" aria-label="Paleta VGA"></div>
+<label for="alias" data-es="ALIAS OPCIONAL" data-en="OPTIONAL ALIAS">ALIAS OPCIONAL</label>
+<input id="alias" type="text" maxlength="16" pattern="[A-Za-z0-9 _-]*" autocomplete="off" spellcheck="false" aria-describedby="alias-rule">
+<p id="alias-rule" data-es="Máximo 16: letras, números, espacio, _ y -" data-en="Maximum 16: letters, numbers, space, _ and -">Máximo 16: letras, números, espacio, _ y -</p>
+<div class="action-row">
+<button id="clear" type="button" data-es="BORRAR" data-en="CLEAR">BORRAR</button>
+<button id="publish" type="button" data-es="PUBLICAR" data-en="PUBLISH">PUBLICAR</button>
+</div>
+<p id="status" class="status" aria-live="polite" data-es="LISTO" data-en="READY">LISTO</p>
+</div>
+</div>
+</section>
+<section class="wall-panel" aria-labelledby="wall-title">
+<div class="section-bar">
+<h2 id="wall-title" data-es="02 // MURO PÚBLICO" data-en="02 // PUBLIC WALL">02 // MURO PÚBLICO</h2>
+<span id="wall-state" data-es="CARGANDO" data-en="LOADING">CARGANDO</span>
+</div>
+<div id="wall" class="wall" aria-live="polite"></div>
+<button id="load-more" type="button" data-es="CARGAR MÁS" data-en="LOAD MORE">CARGAR MÁS</button>
+</section>
+</main>
+<footer>
+<span data-es="VERSIÓN" data-en="VERSION">VERSIÓN</span>
+<code>{{.Commit}}</code>
+<a href="{{.RepoURL}}" rel="noreferrer">REPOSITORY</a>
+<a href="{{.PRURL}}" rel="noreferrer">PULL REQUEST</a>
+</footer>
+<script>{{.Script}}</script>
+</body>
+</html>

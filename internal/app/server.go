@@ -41,6 +41,8 @@ type server struct {
 	commit     string
 	repoURL    string
 	prURL      string
+	page       []byte
+	csp        string
 	now        func() time.Time
 	bodyLimit  int64
 	trustProxy bool
@@ -70,12 +72,18 @@ func New(config Config) (http.Handler, error) {
 	if config.BodyLimit <= 0 {
 		config.BodyLimit = defaultBodyLimit
 	}
+	page, csp, err := buildPage(config.Commit, config.RepoURL, config.PRURL)
+	if err != nil {
+		return nil, err
+	}
 	return &server{
 		store:      config.Store,
 		limiter:    config.Limiter,
 		commit:     config.Commit,
 		repoURL:    config.RepoURL,
 		prURL:      config.PRURL,
+		page:       page,
+		csp:        csp,
 		now:        config.Now,
 		bodyLimit:  config.BodyLimit,
 		trustProxy: config.TrustProxy,
@@ -83,7 +91,7 @@ func New(config Config) (http.Handler, error) {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	setSecurityHeaders(w)
+	setSecurityHeaders(w, s.csp)
 	switch r.URL.Path {
 	case "/postcard":
 		if r.Method != http.MethodPost {
@@ -186,7 +194,7 @@ func (s *server) handleWall(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("format") != "json" && !strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><title>Pixelgrama</title></head><body><main id=\"pixelgrama\"></main></body></html>")
+		_, _ = w.Write(s.page)
 		return
 	}
 
@@ -275,8 +283,8 @@ func (s *server) clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func setSecurityHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; connect-src 'self'; script-src 'none'; style-src 'none'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'")
+func setSecurityHeaders(w http.ResponseWriter, csp string) {
+	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Permissions-Policy", "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=()")
