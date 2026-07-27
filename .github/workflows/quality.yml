@@ -48,7 +48,8 @@ jobs:
             --volume pixelgrama_pixelgrama-data:/data \
             ghcr.io/charle-z/pixelgrama:latest \
             -c 'touch /data/.coolify-owned && chown 0:0 /data && chmod 0755 /data'
-          docker compose up --detach
+          docker compose config | grep -q 'pull_policy: always'
+          docker compose up --detach --pull never
           for attempt in $(seq 1 30); do
             state="$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps --quiet pixelgrama)" 2>/dev/null || true)"
             if [ "${state}" = healthy ]; then

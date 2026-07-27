@@ -1,6 +1,7 @@
 services:
   pixelgrama:
     image: ghcr.io/charle-z/pixelgrama:latest
+    pull_policy: always
     user: "0:0"
     restart: unless-stopped
     environment:
