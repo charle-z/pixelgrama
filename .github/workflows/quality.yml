@@ -35,11 +35,19 @@ jobs:
             .
       - name: Smoke hardened Compose runtime
         run: |
+          export COMPOSE_PROJECT_NAME=pixelgrama
           cleanup() {
             docker compose logs --no-color || true
             docker compose down --volumes --remove-orphans || true
           }
           trap cleanup EXIT
+          docker volume create pixelgrama_pixelgrama-data
+          docker run --rm \
+            --user 0:0 \
+            --entrypoint /bin/sh \
+            --volume pixelgrama_pixelgrama-data:/data \
+            ghcr.io/charle-z/pixelgrama:latest \
+            -c 'touch /data/.coolify-owned && chown 0:0 /data && chmod 0755 /data'
           docker compose up --detach
           for attempt in $(seq 1 30); do
             state="$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps --quiet pixelgrama)" 2>/dev/null || true)"

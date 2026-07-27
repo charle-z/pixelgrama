@@ -1,6 +1,27 @@
 services:
+  pixelgrama-init:
+    image: ghcr.io/charle-z/pixelgrama:latest
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - chmod 0750 /data && chown 10001:10001 /data
+    volumes:
+      - pixelgrama-data:/data
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
   pixelgrama:
     image: ghcr.io/charle-z/pixelgrama:latest
+    depends_on:
+      pixelgrama-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     environment:
       ADDR: ":8080"
