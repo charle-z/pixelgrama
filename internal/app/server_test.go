@@ -80,7 +80,7 @@ func TestExactRoutesAndMethods(t *testing.T) {
 		path   string
 		want   int
 	}{
-		{http.MethodGet, "/", http.StatusNotFound},
+		{http.MethodGet, "/", http.StatusPermanentRedirect},
 		{http.MethodGet, "/missing", http.StatusNotFound},
 		{http.MethodGet, "/wall/", http.StatusNotFound},
 		{http.MethodGet, "/healthz/", http.StatusNotFound},
@@ -100,6 +100,17 @@ func TestExactRoutesAndMethods(t *testing.T) {
 				t.Fatalf("status = %d, want %d; body=%s", got.Code, tt.want, got.Body.String())
 			}
 		})
+	}
+}
+
+func TestRootRedirectsPermanentlyToWall(t *testing.T) {
+	handler, _ := newTestHandler(t, 100)
+	response := request(handler, http.MethodGet, "/", nil)
+	if response.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusPermanentRedirect)
+	}
+	if location := response.Header().Get("Location"); location != "/wall" {
+		t.Fatalf("Location = %q, want /wall", location)
 	}
 }
 
