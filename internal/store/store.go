@@ -45,20 +45,12 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	const schema = `
-CREATE TABLE IF NOT EXISTS postcards (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pixels BLOB NOT NULL CHECK(length(pixels) = 256),
-    alias TEXT NULL CHECK(alias IS NULL OR (length(alias) <= 16 AND alias NOT GLOB '*[^A-Za-z0-9 _-]*')),
-    deployed_commit TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS postcards_created_at_idx ON postcards(id DESC);`
-	if _, err := db.Exec(schema); err != nil {
+	store := &Store{db: db}
+	if err := store.migrate(context.Background()); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate sqlite: %w", err)
+		return nil, err
 	}
-	return &Store{db: db}, nil
+	return store, nil
 }
 
 func (s *Store) Close() error {

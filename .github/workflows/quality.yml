@@ -62,6 +62,9 @@ jobs:
             sleep 1
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps --quiet pixelgrama)")" = healthy
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/readyz \
+            | jq -e '.status == "ready"'
+          docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama backup --output /data/ci-backup.db
           docker compose exec --no-TTY pixelgrama cat /proc/1/status \
             | awk '$1 == "Uid:" { found=1; exit !($2 == 10001 && $3 == 10001 && $4 == 10001 && $5 == 10001) } END { if (!found) exit 1 }'
           docker compose exec --no-TTY pixelgrama cat /proc/1/status \

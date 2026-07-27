@@ -13,13 +13,15 @@ The server rejects malformed JSON, unknown fields, non-arrays, wrong lengths, no
 
 ## HTTP surface
 
-There are exactly four routes:
+The HTTP surface is intentionally small:
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| `POST` | `/postcard` | Validate and publish one postcard. |
+| `GET` | `/` | Permanent redirect to `/wall`. |
+| `POST` | `/postcard` | Validate and publish one JSON postcard. |
 | `GET` | `/wall` | Embedded HTML wall, or bounded JSON with `Accept: application/json` / `?format=json`. |
-| `GET` | `/healthz` | Liveness response. |
+| `GET` | `/healthz` | Process liveness; does not depend on SQLite. |
+| `GET` | `/readyz` | SQLite and schema readiness. |
 | `GET` | `/version` | Deployed commit, repository and pull-request provenance. |
 
 Wall pagination defaults to 24 entries, caps at 64 and caps the page number at 1000. Results are newest first. Pixel-identical consecutive submissions are rejected even when their aliases differ.
@@ -29,10 +31,10 @@ Wall pagination defaults to 24 entries, caps at 64 and caps the page number at 1
 - Go standard library plus `modernc.org/sqlite`; no CGO.
 - One binary with HTML, CSS and JavaScript embedded through `go:embed`.
 - Vanilla canvas frontend; no Node runtime, CDN, remote font, analytics or third-party browser dependency.
-- Fixed-window POST rate limit by client IP with bounded memory. Proxy headers are ignored unless `TRUST_PROXY=true`; the supplied Coolify composition enables it behind the platform proxy.
+- Fixed-window POST rate limit by client IP with bounded memory and validated operational defaults. Forwarded headers are accepted only when the immediate peer belongs to `TRUSTED_PROXY_CIDRS`; otherwise they are ignored.
 - CSP explicitly declares `default-src`, `connect-src`, `script-src`, `style-src`, `img-src`, `base-uri`, `form-action`, `frame-ancestors` and `object-src`. Inline embedded CSS and JavaScript are allowed only by exact SHA-256 hashes generated from the embedded bytes. `unsafe-inline` is never used.
 - `nosniff`, no-referrer, restrictive Permissions Policy, same-origin opener/resource policies and no-store responses.
-- SQLite WAL, busy timeout, one connection and transactional latest-postcard deduplication.
+- SQLite WAL, busy timeout, one connection, transactional latest-postcard deduplication and schema migrations controlled by `PRAGMA user_version`. Databases newer than the binary are rejected.
 - The container runs as UID/GID 10001, drops every capability, uses a read-only root filesystem in Compose and writes only to `/data`.
 
 ## Local development
@@ -42,7 +44,7 @@ go test ./...
 CGO_ENABLED=0 go run ./cmd/pixelgrama
 ```
 
-Override `ADDR`, `DB_PATH` or `TRUST_PROXY` through environment variables. The default database path is `/data/pixelgrama.db`.
+Override `ADDR` or `DB_PATH` through environment variables. Operational controls are `TRUSTED_PROXY_CIDRS`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` and `RATE_LIMIT_MAX_ENTRIES`. Invalid CIDRs, durations or non-positive limits stop startup. The default database path is `/data/pixelgrama.db`.
 
 Full local gates:
 
@@ -59,9 +61,31 @@ git diff --check
 
 `Dockerfile` is multi-stage: Go compiles a static CGO-disabled binary and the final Alpine image runs it as a non-root user. GitHub Actions performs tests, race detection, vet and static build on pull requests. Only a merge to `main` or a version tag publishes images to GHCR.
 
-The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz` plus `/version`.
+The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version` and a verified SQLite backup.
 
 `docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built public `ghcr.io/charle-z/pixelgrama:latest` image instead of compiling on the CPU-limited VPS. Deploy only after the image workflow for the merged commit is available, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
+
+## SQLite operations
+
+The current schema version is `1`. A legacy database with `PRAGMA user_version = 0` is migrated transactionally without recreating or deleting existing postcards. A database with a version greater than the supported version is rejected before serving traffic.
+
+`/healthz` remains a liveness endpoint. `/readyz` executes a real SQLite ping and verifies that `PRAGMA user_version` matches the binary.
+
+Create a consistent administrative backup with the same binary:
+
+```sh
+pixelgrama backup --output /backups/pixelgrama-$(date +%Y%m%dT%H%M%SZ).db
+```
+
+The destination must not already exist and must be writable by UID 10001. The command uses SQLite `VACUUM INTO`, then opens the copy and verifies `PRAGMA integrity_check`, schema version and the `postcards` table. Mount the destination on storage separate from the live `/data` volume.
+
+Restoration is deliberately manual:
+
+1. Stop `pixelgrama-prod`.
+2. Preserve the current database and its WAL/SHM files.
+3. Place the verified backup at the configured `DB_PATH` with UID/GID 10001 ownership and mode 0750 on its directory.
+4. Start the application.
+5. Require `/readyz`, `/healthz` and `/version` to succeed before reopening writes.
 
 ## Provenance
 

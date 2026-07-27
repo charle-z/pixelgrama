@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -25,27 +27,29 @@ const (
 )
 
 type Config struct {
-	Store      *store.Store
-	Limiter    *ratelimit.Limiter
-	Commit     string
-	RepoURL    string
-	PRURL      string
-	Now        func() time.Time
-	BodyLimit  int64
-	TrustProxy bool
+	Store             *store.Store
+	Limiter           *ratelimit.Limiter
+	Commit            string
+	RepoURL           string
+	PRURL             string
+	Now               func() time.Time
+	BodyLimit         int64
+	TrustedProxyCIDRs []netip.Prefix
+	RateLimitWindow   time.Duration
 }
 
 type server struct {
-	store      *store.Store
-	limiter    *ratelimit.Limiter
-	commit     string
-	repoURL    string
-	prURL      string
-	page       []byte
-	csp        string
-	now        func() time.Time
-	bodyLimit  int64
-	trustProxy bool
+	store             *store.Store
+	limiter           *ratelimit.Limiter
+	commit            string
+	repoURL           string
+	prURL             string
+	page              []byte
+	csp               string
+	now               func() time.Time
+	bodyLimit         int64
+	trustedProxyCIDRs []netip.Prefix
+	rateLimitWindow   time.Duration
 }
 
 type errorResponse struct {
@@ -72,21 +76,25 @@ func New(config Config) (http.Handler, error) {
 	if config.BodyLimit <= 0 {
 		config.BodyLimit = defaultBodyLimit
 	}
+	if config.RateLimitWindow <= 0 {
+		config.RateLimitWindow = time.Minute
+	}
 	page, csp, err := buildPage(config.Commit, config.RepoURL, config.PRURL)
 	if err != nil {
 		return nil, err
 	}
 	return &server{
-		store:      config.Store,
-		limiter:    config.Limiter,
-		commit:     config.Commit,
-		repoURL:    config.RepoURL,
-		prURL:      config.PRURL,
-		page:       page,
-		csp:        csp,
-		now:        config.Now,
-		bodyLimit:  config.BodyLimit,
-		trustProxy: config.TrustProxy,
+		store:             config.Store,
+		limiter:           config.Limiter,
+		commit:            config.Commit,
+		repoURL:           config.RepoURL,
+		prURL:             config.PRURL,
+		page:              page,
+		csp:               csp,
+		now:               config.Now,
+		bodyLimit:         config.BodyLimit,
+		trustedProxyCIDRs: append([]netip.Prefix(nil), config.TrustedProxyCIDRs...),
+		rateLimitWindow:   config.RateLimitWindow,
 	}, nil
 }
 
@@ -114,6 +122,17 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleWall(w, r)
+	case "/readyz":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is allowed")
+			return
+		}
+		if err := s.store.Ready(r.Context()); err != nil {
+			s.writeError(w, http.StatusServiceUnavailable, "not_ready", "storage is not ready")
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	case "/healthz":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
@@ -138,6 +157,11 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		s.writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json")
+		return
+	}
 	body := http.MaxBytesReader(w, r.Body, s.bodyLimit)
 	defer body.Close()
 	decoder := json.NewDecoder(body)
@@ -180,7 +204,8 @@ func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.limiter.Allow(s.clientIP(r)) {
-		w.Header().Set("Retry-After", "60")
+		retrySeconds := int((s.rateLimitWindow + time.Second - 1) / time.Second)
+		w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
 		s.writeError(w, http.StatusTooManyRequests, "rate_limited", "postcard rate limit exceeded")
 		return
 	}
@@ -278,16 +303,45 @@ func positiveQueryInt(r *http.Request, name string, fallback int) (int, error) {
 }
 
 func (s *server) clientIP(r *http.Request) string {
-	if s.trustProxy {
-		if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" && net.ParseIP(forwarded) != nil {
-			return forwarded
+	remote := remoteAddress(r.RemoteAddr)
+	if !s.isTrustedProxy(remote) {
+		return remote.String()
+	}
+	forwarded := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(forwarded) - 1; i >= 0; i-- {
+		address, err := netip.ParseAddr(strings.TrimSpace(forwarded[i]))
+		if err != nil {
+			return remote.String()
+		}
+		address = address.Unmap()
+		if !s.isTrustedProxy(address) {
+			return address.String()
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		return host
+	return remote.String()
+}
+
+func remoteAddress(value string) netip.Addr {
+	host, _, err := net.SplitHostPort(value)
+	if err == nil {
+		if address, parseErr := netip.ParseAddr(host); parseErr == nil {
+			return address.Unmap()
+		}
 	}
-	return r.RemoteAddr
+	address, _ := netip.ParseAddr(value)
+	return address.Unmap()
+}
+
+func (s *server) isTrustedProxy(address netip.Addr) bool {
+	if !address.IsValid() {
+		return false
+	}
+	for _, prefix := range s.trustedProxyCIDRs {
+		if prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func setSecurityHeaders(w http.ResponseWriter, csp string) {

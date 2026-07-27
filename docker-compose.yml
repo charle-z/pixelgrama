@@ -7,7 +7,10 @@ services:
     environment:
       ADDR: ":8080"
       DB_PATH: "/data/pixelgrama.db"
-      TRUST_PROXY: "true"
+      TRUSTED_PROXY_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
+      RATE_LIMIT_REQUESTS: "5"
+      RATE_LIMIT_WINDOW: "1m"
+      RATE_LIMIT_MAX_ENTRIES: "10000"
     volumes:
       - pixelgrama-data:/data
     expose:
