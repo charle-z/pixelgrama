@@ -93,6 +93,13 @@ func New(config Config) (http.Handler, error) {
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w, s.csp)
 	switch r.URL.Path {
+	case "/":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is allowed")
+			return
+		}
+		http.Redirect(w, r, "/wall", http.StatusPermanentRedirect)
 	case "/postcard":
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
