@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -28,8 +27,8 @@ func main() {
 	databasePath := envOrDefault("DB_PATH", "/data/pixelgrama.db")
 	trustProxy := envBool("TRUST_PROXY", false)
 
-	if err := os.MkdirAll(filepath.Dir(databasePath), 0o750); err != nil {
-		log.Fatalf("create data directory: %v", err)
+	if err := prepareRuntime(databasePath, systemRuntimeOps{}); err != nil {
+		log.Fatalf("prepare runtime: %v", err)
 	}
 	database, err := store.Open(databasePath)
 	if err != nil {
