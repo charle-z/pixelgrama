@@ -31,10 +31,9 @@ jobs:
             --build-arg REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             --build-arg PR_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${{ github.event.pull_request.number }}" \
             --tag pixelgrama:ci \
+            --tag ghcr.io/charle-z/pixelgrama:latest \
             .
       - name: Smoke hardened Compose runtime
-        env:
-          PIXELGRAMA_IMAGE: pixelgrama:ci
         run: |
           cleanup() {
             docker compose logs --no-color || true

@@ -1,6 +1,6 @@
 services:
   pixelgrama:
-    image: ${PIXELGRAMA_IMAGE:?PIXELGRAMA_IMAGE is required}
+    image: ghcr.io/charle-z/pixelgrama:latest
     restart: unless-stopped
     environment:
       ADDR: ":8080"
