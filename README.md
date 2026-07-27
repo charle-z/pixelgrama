@@ -61,7 +61,7 @@ git diff --check
 
 The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz` plus `/version`.
 
-`docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built image instead of compiling on the CPU-limited VPS. Production should set `PIXELGRAMA_IMAGE=ghcr.io/charle-z/pixelgrama:sha-<merge-commit>`, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
+`docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built public `ghcr.io/charle-z/pixelgrama:latest` image instead of compiling on the CPU-limited VPS. Deploy only after the image workflow for the merged commit is available, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
 
 ## Provenance
 
