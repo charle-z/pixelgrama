@@ -1,0 +1,27 @@
+services:
+  pixelgrama:
+    image: ${PIXELGRAMA_IMAGE:-ghcr.io/charle-z/pixelgrama:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      ADDR: ":8080"
+      DB_PATH: "/data/pixelgrama.db"
+      TRUST_PROXY: "true"
+    volumes:
+      - pixelgrama-data:/data
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  pixelgrama-data:

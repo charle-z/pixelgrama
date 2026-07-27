@@ -1,0 +1,7 @@
+.git
+.github
+.agent-memory
+*.db
+*.db-shm
+*.db-wal
+pixelgrama
