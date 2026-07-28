@@ -270,14 +270,14 @@ func TestWallJSONPaginationIsBounded(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	response := request(handler, http.MethodGet, "/wall?format=json&limit=999&page=1", nil)
+	response := request(handler, http.MethodGet, "/wall?format=json&limit=999", nil)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d; body=%s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		Postcards []store.Postcard `json:"postcards"`
-		Page      int              `json:"page"`
-		Limit     int              `json:"limit"`
+		Postcards    []store.Postcard `json:"postcards"`
+		Limit        int              `json:"limit"`
+		NextBeforeID *int64           `json:"next_before_id"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
@@ -287,6 +287,9 @@ func TestWallJSONPaginationIsBounded(t *testing.T) {
 	}
 	if payload.Postcards[0].ID <= payload.Postcards[len(payload.Postcards)-1].ID {
 		t.Fatal("postcards are not newest first")
+	}
+	if payload.NextBeforeID == nil || *payload.NextBeforeID != payload.Postcards[len(payload.Postcards)-1].ID {
+		t.Fatalf("next cursor = %#v", payload.NextBeforeID)
 	}
 }
 

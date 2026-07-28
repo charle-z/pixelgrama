@@ -19,7 +19,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go mod verify
-      - run: node --test internal/app/web/editor_test.js internal/app/web/remix_test.js
+      - run: node --test internal/app/web/editor_test.js internal/app/web/remix_test.js internal/app/web/exploration_test.js
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
       - run: go vet ./...
@@ -90,6 +90,22 @@ jobs:
           test "${child_id}" -gt "${postcard_id}"
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${child_id}.json" \
             | jq -e --argjson parent "${postcard_id}" '.parent_id == $parent'
+          first_page="$(docker compose exec --no-TTY pixelgrama wget -q -O - 'http://127.0.0.1:8080/wall?format=json&limit=1')"
+          first_id="$(printf '%s' "${first_page}" | jq -r '.postcards[0].id')"
+          before_id="$(printf '%s' "${first_page}" | jq -r '.next_before_id')"
+          test "${first_id}" -eq "${child_id}"
+          test "${before_id}" -eq "${child_id}"
+          third_payload="$(jq -nc '{pixels: [range(0; 256) | (. + 2) % 16], alias: "NEW"}')"
+          third_id="$(docker compose exec --no-TTY pixelgrama wget -q -O - \
+            --header 'Content-Type: application/json' \
+            --post-data "${third_payload}" \
+            http://127.0.0.1:8080/postcard | jq -r '.id')"
+          test "${third_id}" -gt "${child_id}"
+          docker compose exec --no-TTY pixelgrama wget -q -O - \
+            "http://127.0.0.1:8080/wall?format=json&limit=1&before_id=${before_id}" \
+            | jq -e --argjson parent "${postcard_id}" --argjson newest "${third_id}" '(.postcards | length) == 1 and .postcards[0].id == $parent and .postcards[0].id != $newest'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/random \
+            | grep -q 'REMIX'
           hide_log="$(mktemp)"
           docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama admin hide \
             --id "${postcard_id}" --reason "CI moderation smoke" 2>"${hide_log}" \

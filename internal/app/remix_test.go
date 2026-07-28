@@ -20,7 +20,7 @@ func TestEmbeddedRemixAndReducedWallMetadataContract(t *testing.T) {
 		`format_version !== 1`,
 		`palette_id !== "vga16"`,
 		`className = "share-link"`,
-		`href = "/p/" + item.id`,
+		`href = "/p/" + id`,
 		`parentId`,
 	} {
 		if !strings.Contains(html, required) {

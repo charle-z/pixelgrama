@@ -127,6 +127,38 @@
     return new Intl.DateTimeFormat(language === "en" ? "en-US" : "es-CO", options).format(date);
   }
 
+  function validCursor(value) {
+    return Number.isSafeInteger(value) && value > 0;
+  }
+
+  function wallRequestPath(beforeID, limit) {
+    const pageLimit = Number.isInteger(limit) && limit > 0 ? limit : 24;
+    let path = "/wall?format=json&limit=" + pageLimit;
+    if (beforeID !== null) {
+      if (!validCursor(beforeID)) {
+        throw new TypeError("beforeID must be a positive safe integer or null");
+      }
+      path += "&before_id=" + beforeID;
+    }
+    return path;
+  }
+
+  function normalizeWallPage(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || !Array.isArray(value.postcards)) {
+      return null;
+    }
+    const nextBeforeID = value.next_before_id === undefined || value.next_before_id === null
+      ? null
+      : value.next_before_id;
+    if (nextBeforeID !== null && !validCursor(nextBeforeID)) {
+      return null;
+    }
+    return {
+      postcards: value.postcards,
+      nextBeforeID
+    };
+  }
+
   function validateDraft(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return null;
@@ -355,6 +387,9 @@
     validPixels,
     validateDraft,
     formatPostcardDate,
+    validCursor,
+    wallRequestPath,
+    normalizeWallPage,
     linePoints,
     floodFill,
     flippedHorizontally,
