@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charle-z/pixelgrama/internal/challenge"
 	"github.com/charle-z/pixelgrama/internal/core"
 	"github.com/charle-z/pixelgrama/internal/ratelimit"
 	"github.com/charle-z/pixelgrama/internal/store"
@@ -132,6 +133,13 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleRandom(w, r)
+	case "/challenge":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is allowed")
+			return
+		}
+		s.writeJSON(w, http.StatusOK, challenge.ForDate(s.now()))
 	case "/readyz":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
