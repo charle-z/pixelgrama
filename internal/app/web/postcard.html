@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixelgrama #{{.ID}}</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<header class="masthead">
+<div>
+<p class="prompt">C:\PUBLIC\PIXELGRAMA\POSTCARD&gt;</p>
+<h1>PIXELGRAMA</h1>
+<p>POSTAL #{{.ID}} · POSTCARD #{{.ID}}</p>
+</div>
+<nav aria-label="Navigation">
+<a class="button-link" href="/wall">MURO / WALL</a>
+</nav>
+</header>
+<main>
+<section class="share-panel" aria-labelledby="share-title">
+<div class="section-bar">
+<h2 id="share-title">{{.Alias}}</h2>
+<span>{{.CreatedAt}}</span>
+</div>
+<div class="share-layout">
+<img class="share-image" src="{{.PNGURL}}" width="256" height="256" alt="Postal pixel art #{{.ID}}">
+<div class="share-actions">
+<a class="button-link primary" href="{{.RemixURL}}">REMIX</a>
+<a class="button-link" href="{{.PNGURL}}">PNG</a>
+<a class="button-link" href="{{.JSONURL}}">JSON</a>
+{{if .HasParent}}<a class="button-link" href="{{.ParentURL}}">PARENT</a>{{end}}
+<p class="content-hash"><span>CONTENT HASH</span><code>{{.ContentHash}}</code></p>
+</div>
+</div>
+</section>
+</main>
+<footer>
+<a href="/wall">PIXELGRAMA</a>
+</footer>
+</body>
+</html>

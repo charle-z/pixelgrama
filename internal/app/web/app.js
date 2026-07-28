@@ -35,11 +35,15 @@
   let publishing = false;
   let currentStatus = "ready";
   let currentWallStatus = "loading";
+  let remixParentID = null;
 
   const messages = {
     ready: { es: "LISTO", en: "READY" },
     draftRestored: { es: "BORRADOR RESTAURADO", en: "DRAFT RESTORED" },
     draftDiscarded: { es: "BORRADOR INVÁLIDO DESCARTADO", en: "INVALID DRAFT DISCARDED" },
+    remixLoaded: { es: "REMIX CARGADO", en: "REMIX LOADED" },
+    remixError: { es: "REMIX NO DISPONIBLE", en: "REMIX UNAVAILABLE" },
+    invalidParent: { es: "POSTAL PADRE NO DISPONIBLE", en: "PARENT POSTCARD UNAVAILABLE" },
     publishing: { es: "PUBLICANDO...", en: "PUBLISHING..." },
     published: { es: "POSTAL PUBLICADA", en: "POSTCARD PUBLISHED" },
     invalidAlias: { es: "ALIAS INVÁLIDO", en: "INVALID ALIAS" },
@@ -99,6 +103,7 @@
   let model = new EditorModel(savedDraft.draft || {});
   if (savedDraft.draft !== null) {
     aliasNode.value = savedDraft.draft.alias;
+    remixParentID = savedDraft.draft.parentId;
     currentStatus = "draftRestored";
   } else if (savedDraft.invalid) {
     currentStatus = "draftDiscarded";
@@ -137,7 +142,7 @@
   }
 
   function persistDraft() {
-    storageSet(DRAFT_KEY, JSON.stringify(model.draft(aliasNode.value)));
+    storageSet(DRAFT_KEY, JSON.stringify(model.draft(aliasNode.value, remixParentID)));
   }
 
   function updateControls() {
@@ -234,9 +239,14 @@
     alias.textContent = typeof item.alias === "string" && item.alias.length > 0 ? item.alias : "ANON";
     const meta = document.createElement("p");
     meta.className = "meta";
-    const commit = typeof item.commit === "string" ? item.commit.slice(0, 12) : "unknown";
-    meta.textContent = "#" + (Number(item.id) || 0) + " · " + commit + " · " + formatPostcardDate(item.created_at, language);
-    article.append(canvas, alias, meta);
+    meta.textContent = formatPostcardDate(item.created_at, language);
+    const share = document.createElement("a");
+    share.className = "share-link";
+    share.href = "/p/" + item.id;
+    share.dataset.es = "ABRIR / REMIX";
+    share.dataset.en = "OPEN / REMIX";
+    share.textContent = share.dataset[language];
+    article.append(canvas, alias, meta, share);
     wallNode.append(article);
   }
 
@@ -280,6 +290,9 @@
     if (alias.length > 0) {
       payload.alias = alias;
     }
+    if (remixParentID !== null) {
+      payload.parent_id = remixParentID;
+    }
     try {
       const response = await fetch("/postcard", {
         method: "POST",
@@ -292,12 +305,16 @@
           setStatus("duplicate");
         } else if (result.error === "rate_limited") {
           setStatus("rateLimited");
+        } else if (result.error === "invalid_parent") {
+          setStatus("invalidParent");
         } else {
           setStatus("publishError");
         }
         return;
       }
       storageRemove(DRAFT_KEY);
+      remixParentID = null;
+      window.history.replaceState(null, "", "/wall");
       setStatus("published");
       await loadWall(true);
     } catch (error) {
@@ -305,6 +322,47 @@
     } finally {
       publishing = false;
       updateControls();
+    }
+  }
+
+  async function loadRemix() {
+    const parameters = new URLSearchParams(window.location.search);
+    const rawID = parameters.get("remix");
+    if (rawID === null) {
+      return;
+    }
+    if (!/^[1-9][0-9]*$/.test(rawID)) {
+      remixParentID = null;
+      setStatus("remixError");
+      return;
+    }
+    const remixID = Number(rawID);
+    if (!Number.isSafeInteger(remixID)) {
+      remixParentID = null;
+      setStatus("remixError");
+      return;
+    }
+    try {
+      const response = await fetch("/p/" + remixID + ".json", {
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error("remix");
+      }
+      const item = await response.json();
+      if (!item || item.id !== remixID || !validPixels(item.pixels)
+        || item.format_version !== 1 || item.palette_id !== "vga16"
+        || typeof item.content_hash !== "string" || !/^[0-9a-f]{64}$/.test(item.content_hash)) {
+        throw new Error("remix");
+      }
+      model = new EditorModel({ pixels: item.pixels, selected: model.selected, tool: "pencil" });
+      aliasNode.value = "";
+      remixParentID = remixID;
+      setStatus("remixLoaded");
+      editorChanged(true);
+    } catch (error) {
+      remixParentID = null;
+      setStatus("remixError");
     }
   }
 
@@ -442,5 +500,6 @@
   applyLanguage(language, false);
   drawEditor();
   updateControls();
+  loadRemix();
   loadWall(true);
 })();

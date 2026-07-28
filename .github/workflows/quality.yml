@@ -19,7 +19,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go mod verify
-      - run: node --test internal/app/web/editor_test.js
+      - run: node --test internal/app/web/editor_test.js internal/app/web/remix_test.js
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
       - run: go vet ./...
@@ -76,6 +76,20 @@ jobs:
             --post-data "${payload}" \
             http://127.0.0.1:8080/postcard | jq -r '.id')"
           test "${postcard_id}" -gt 0
+          docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}" \
+            | grep -q "wall?remix=${postcard_id}"
+          docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}.json" \
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .format_version == 1 and .palette_id == "vga16" and (.content_hash | test("^[0-9a-f]{64}$"))'
+          docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}.png" \
+            | head -c 8 | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$'
+          child_payload="$(jq -nc --argjson parent "${postcard_id}" '{pixels: [range(0; 256) | (. + 1) % 16], alias: "REMIX", parent_id: $parent}')"
+          child_id="$(docker compose exec --no-TTY pixelgrama wget -q -O - \
+            --header 'Content-Type: application/json' \
+            --post-data "${child_payload}" \
+            http://127.0.0.1:8080/postcard | jq -r '.id')"
+          test "${child_id}" -gt "${postcard_id}"
+          docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${child_id}.json" \
+            | jq -e --argjson parent "${postcard_id}" '.parent_id == $parent'
           hide_log="$(mktemp)"
           docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama admin hide \
             --id "${postcard_id}" --reason "CI moderation smoke" 2>"${hide_log}" \
