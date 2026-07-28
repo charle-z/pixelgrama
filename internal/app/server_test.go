@@ -118,7 +118,7 @@ func TestRootRedirectsPermanentlyToWall(t *testing.T) {
 
 func TestSecurityHeadersAreExplicitOnEveryResponse(t *testing.T) {
 	handler, _ := newTestHandler(t, 100)
-	for _, target := range []string{"/healthz", "/readyz", "/version", "/challenge", "/wall", "/missing"} {
+	for _, target := range []string{"/healthz", "/readyz", "/version", "/challenge", "/wall", "/week", "/week.png", "/missing"} {
 		t.Run(target, func(t *testing.T) {
 			response := request(handler, http.MethodGet, target, nil)
 			csp := response.Header().Get("Content-Security-Policy")

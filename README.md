@@ -23,6 +23,8 @@ The HTTP surface is intentionally small:
 | `GET` | `/wall` | Embedded HTML wall, or bounded cursor JSON with `Accept: application/json` / `?format=json`. |
 | `GET` | `/random` | Redirect to one randomly selected public postcard without ranking. |
 | `GET` | `/challenge` | Current deterministic bilingual daily challenge for the UTC date. |
+| `GET` | `/week` | Current ISO UTC week mosaic page using public postcards only. |
+| `GET` | `/week.png` | Deterministic 512×512 PNG of up to 64 recent public postcards from the current UTC week. |
 | `GET` | `/p/{id}` | Shareable page for one public postcard. |
 | `GET` | `/p/{id}.json` | Canonical postcard JSON including content identity and parent relation. |
 | `GET` | `/p/{id}.png` | Deterministic 256×256 PNG using integer 16× scaling and no smoothing. |
@@ -54,6 +56,8 @@ Override `ADDR` or `DB_PATH` through environment variables. Operational controls
 
 The daily challenge is selected deterministically from an embedded version-1 bilingual catalog using the UTC calendar date. It requires no cron job, database table, account, ranking or participation tracking; changing the displayed language only selects the already validated ES/EN prompt.
 
+The weekly mosaic is derived at request time from the current ISO week in UTC. It selects the latest 64 visible postcards, restores chronological order within the 8×8 mosaic, renders a deterministic 512×512 VGA PNG, and excludes hidden or out-of-week content. It adds no table, cron job, upload format, account or tracking signal.
+
 The editor keeps a versioned, strictly validated draft in `localStorage`, persists the selected language separately, groups pointer strokes into bounded undo history, interpolates fast movement and supports pencil, eraser, fill, eyedropper and horizontal/vertical flips. Opening `/wall?remix=<id>` loads only a public version-1 `vga16` postcard through `/p/<id>.json`, validates its hash and pixels, and preserves the parent ID in the draft and publication payload. The canvas is keyboard-focusable: arrows move the active cell, Space/Enter applies the tool, P/E/F/I select tools, 0–F selects a VGA color and Ctrl+Z/Ctrl+Y control history. Publishing is locked while one request is active. No draft or language value is sent to a third party.
 
 JavaScript editor logic has dependency-free tests executed with Node only in development and CI; Node is not present in the production image or browser runtime.
@@ -74,7 +78,7 @@ git diff --check
 
 `Dockerfile` is multi-stage: Go compiles a static CGO-disabled binary and the final Alpine image runs it as a non-root user. GitHub Actions performs tests, race detection, vet and static build on pull requests. Only a merge to `main` or a version tag publishes images to GHCR.
 
-The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, the versioned UTC daily challenge, stable cursor pagination during a concurrent publication, random public exploration, shareable HTML/JSON/PNG, a validated remix parent, a verified SQLite backup and the administrative hide/restore flow.
+The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, the versioned UTC daily challenge, the current weekly mosaic HTML/PNG, stable cursor pagination during a concurrent publication, random public exploration, shareable HTML/JSON/PNG, a validated remix parent, a verified SQLite backup and the administrative hide/restore flow.
 
 `docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built public `ghcr.io/charle-z/pixelgrama:latest` image instead of compiling on the CPU-limited VPS. Deploy only after the image workflow for the merged commit is available, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
 

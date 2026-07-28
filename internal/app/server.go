@@ -133,6 +133,10 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleRandom(w, r)
+	case "/week":
+		s.handleWeekly(w, r, "html")
+	case "/week.png":
+		s.handleWeekly(w, r, "png")
 	case "/challenge":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)

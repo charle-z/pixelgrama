@@ -406,13 +406,58 @@ footer a {
     flex-direction: column;
   }
 
-  .share-layout {
+  .share-layout,
+  .weekly-layout {
     grid-template-columns: 1fr;
   }
 }
 
 
-.random-postcard {
-  display: inline-block;
-  margin: 0 0 16px;
+.explore-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 1rem 1rem 0;
+}
+
+.random-postcard,
+.weekly-mosaic-link {
+  margin: 0;
+}
+
+.weekly-panel {
+  padding-bottom: 1rem;
+}
+
+.weekly-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 560px) minmax(240px, 1fr);
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.weekly-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 3px solid #AAAAAA;
+  image-rendering: pixelated;
+}
+
+.weekly-details {
+  min-width: 0;
+}
+
+.weekly-details p {
+  line-height: 1.5;
+}
+
+.weekly-links {
+  max-height: 20rem;
+  overflow: auto;
+  padding-left: 2rem;
+}
+
+.weekly-links a {
+  color: #55FFFF;
 }

@@ -70,6 +70,10 @@ jobs:
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'id="daily-challenge"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
+            | grep -q 'id="weekly-mosaic-link"'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/week \
+            | grep -q 'id="weekly-mosaic"'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'fetch("/challenge"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'id="tool-pencil"'
@@ -82,6 +86,10 @@ jobs:
             --post-data "${payload}" \
             http://127.0.0.1:8080/postcard | jq -r '.id')"
           test "${postcard_id}" -gt 0
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/week \
+            | grep -q "href=\"/p/${postcard_id}\""
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/week.png \
+            | head -c 8 | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$'
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}" \
             | grep -q "wall?remix=${postcard_id}"
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}.json" \
