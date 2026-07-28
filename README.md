@@ -46,10 +46,15 @@ CGO_ENABLED=0 go run ./cmd/pixelgrama
 
 Override `ADDR` or `DB_PATH` through environment variables. Operational controls are `TRUSTED_PROXY_CIDRS`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` and `RATE_LIMIT_MAX_ENTRIES`. Invalid CIDRs, durations or non-positive limits stop startup. The default database path is `/data/pixelgrama.db`.
 
+The editor keeps a versioned, strictly validated draft in `localStorage`, persists the selected language separately, groups pointer strokes into bounded undo history, interpolates fast movement and supports pencil, eraser, fill, eyedropper and horizontal/vertical flips. The canvas is keyboard-focusable: arrows move the active cell, Space/Enter applies the tool, P/E/F/I select tools, 0–F selects a VGA color and Ctrl+Z/Ctrl+Y control history. Publishing is locked while one request is active. No draft or language value is sent to a third party.
+
+JavaScript editor logic has dependency-free tests executed with Node only in development and CI; Node is not present in the production image or browser runtime.
+
 Full local gates:
 
 ```sh
 go mod verify
+node --test internal/app/web/editor_test.js
 test -z "$(gofmt -l .)"
 go test -race ./...
 go vet ./...

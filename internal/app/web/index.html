@@ -25,27 +25,45 @@
 <span data-es="16×16 · 16 COLORES VGA" data-en="16×16 · 16 VGA COLORS">16×16 · 16 COLORES VGA</span>
 </div>
 <div class="editor-layout">
+<div class="canvas-column">
 <div class="canvas-shell">
-<canvas id="editor" width="512" height="512" aria-label="Lienzo de 16 por 16 píxeles"></canvas>
+<canvas id="editor" width="512" height="512" tabindex="0" aria-describedby="keyboard-help" data-label-es="Lienzo de 16 por 16 píxeles" data-label-en="16 by 16 pixel canvas" aria-label="Lienzo de 16 por 16 píxeles"></canvas>
+</div>
+<p id="keyboard-help" data-es="TECLADO: flechas mueven · espacio aplica · P lápiz · E borrador · F relleno · I cuentagotas · 0–F color · Ctrl+Z deshacer" data-en="KEYBOARD: arrows move · space applies · P pencil · E eraser · F fill · I eyedropper · 0–F color · Ctrl+Z undo">TECLADO: flechas mueven · espacio aplica · P lápiz · E borrador · F relleno · I cuentagotas · 0–F color · Ctrl+Z deshacer</p>
 </div>
 <div class="controls">
+<span id="tools-label" class="control-label" data-es="HERRAMIENTA" data-en="TOOL">HERRAMIENTA</span>
+<div class="tool-grid" role="group" aria-labelledby="tools-label">
+<button id="tool-pencil" data-tool="pencil" type="button" aria-pressed="true" data-es="LÁPIZ [P]" data-en="PENCIL [P]">LÁPIZ [P]</button>
+<button id="tool-eraser" data-tool="eraser" type="button" aria-pressed="false" data-es="BORRADOR [E]" data-en="ERASER [E]">BORRADOR [E]</button>
+<button id="tool-fill" data-tool="fill" type="button" aria-pressed="false" data-es="RELLENO [F]" data-en="FILL [F]">RELLENO [F]</button>
+<button id="tool-eyedropper" data-tool="eyedropper" type="button" aria-pressed="false" data-es="CUENTAGOTAS [I]" data-en="EYEDROPPER [I]">CUENTAGOTAS [I]</button>
+</div>
+<div class="history-row">
+<button id="undo" type="button" disabled data-es="DESHACER" data-en="UNDO">DESHACER</button>
+<button id="redo" type="button" disabled data-es="REHACER" data-en="REDO">REHACER</button>
+</div>
+<div class="transform-row">
+<button id="flip-horizontal" type="button" data-es="VOLTEAR ↔" data-en="FLIP ↔">VOLTEAR ↔</button>
+<button id="flip-vertical" type="button" data-es="VOLTEAR ↕" data-en="FLIP ↕">VOLTEAR ↕</button>
+</div>
 <label data-es="COLOR ACTIVO" data-en="ACTIVE COLOR">COLOR ACTIVO</label>
 <div id="palette" class="palette" role="group" aria-label="Paleta VGA"></div>
 <label for="alias" data-es="ALIAS OPCIONAL" data-en="OPTIONAL ALIAS">ALIAS OPCIONAL</label>
 <input id="alias" type="text" maxlength="16" pattern="[A-Za-z0-9 _-]*" autocomplete="off" spellcheck="false" aria-describedby="alias-rule">
 <p id="alias-rule" data-es="Máximo 16: letras, números, espacio, _ y -" data-en="Maximum 16: letters, numbers, space, _ and -">Máximo 16: letras, números, espacio, _ y -</p>
 <div class="action-row">
-<button id="clear" type="button" data-es="BORRAR" data-en="CLEAR">BORRAR</button>
+<button id="clear" type="button" data-es="LIMPIAR" data-en="CLEAR">LIMPIAR</button>
 <button id="publish" type="button" data-es="PUBLICAR" data-en="PUBLISH">PUBLICAR</button>
 </div>
-<p id="status" class="status" aria-live="polite" data-es="LISTO" data-en="READY">LISTO</p>
+<p id="status" class="status" aria-live="polite">LISTO</p>
 </div>
 </div>
 </section>
 <section class="wall-panel" aria-labelledby="wall-title">
 <div class="section-bar">
 <h2 id="wall-title" data-es="02 // MURO PÚBLICO" data-en="02 // PUBLIC WALL">02 // MURO PÚBLICO</h2>
-<span id="wall-state" data-es="CARGANDO" data-en="LOADING">CARGANDO</span>
+<span id="wall-state">CARGANDO</span>
 </div>
 <div id="wall" class="wall" aria-live="polite"></div>
 <button id="load-more" type="button" data-es="CARGAR MÁS" data-en="LOAD MORE">CARGAR MÁS</button>
