@@ -1,0 +1,41 @@
+{
+  "catalog_version": 1,
+  "palettes": [
+    {
+      "id": "vga16",
+      "version": 1,
+      "name_es": "VGA clásica",
+      "name_en": "Classic VGA",
+      "colors": [
+        "#000000", "#0000AA", "#00AA00", "#00AAAA",
+        "#AA0000", "#AA00AA", "#AA5500", "#AAAAAA",
+        "#555555", "#5555FF", "#55FF55", "#55FFFF",
+        "#FF5555", "#FF55FF", "#FFFF55", "#FFFFFF"
+      ]
+    },
+    {
+      "id": "grayscale16",
+      "version": 1,
+      "name_es": "Escala de grises",
+      "name_en": "Grayscale",
+      "colors": [
+        "#000000", "#111111", "#222222", "#333333",
+        "#444444", "#555555", "#666666", "#777777",
+        "#888888", "#999999", "#AAAAAA", "#BBBBBB",
+        "#CCCCCC", "#DDDDDD", "#EEEEEE", "#FFFFFF"
+      ]
+    },
+    {
+      "id": "sunset16",
+      "version": 1,
+      "name_es": "Atardecer",
+      "name_en": "Sunset",
+      "colors": [
+        "#140C1C", "#442434", "#30346D", "#4E4A4E",
+        "#854C30", "#346524", "#D04648", "#757161",
+        "#597DCE", "#D27D2C", "#8595A1", "#6DAA2C",
+        "#D2AA99", "#6DC2CA", "#DAD45E", "#DEEED6"
+      ]
+    }
+  ]
+}

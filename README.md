@@ -1,6 +1,6 @@
 # Pixelgrama
 
-Pixelgrama is a public bilingual wall of 16×16 pixel-art postcards. A visitor draws with a fixed 16-color VGA palette, may sign with a short alias, and publishes the numeric postcard to a shared wall.
+Pixelgrama is a public bilingual wall of 16×16 pixel-art postcards. A visitor draws with one palette from a closed, versioned 16-color catalog, may sign with a short alias, and publishes the numeric postcard to a shared wall.
 
 ## Data contract
 
@@ -9,8 +9,10 @@ A postcard contains only:
 - `pixels`: exactly 256 JSON integers, each from `0` through `15`.
 - `alias`: optional, at most 16 ASCII characters matching `[A-Za-z0-9 _-]`.
 - `parent_id`: optional positive integer identifying a public postcard used as the remix source.
+- `palette_id`: optional only for backward-compatible VGA publications; otherwise a catalog identifier such as `vga16`, `grayscale16` or `sunset16`.
+- `palette_version`: required together with `palette_id`; the current catalog accepts version `1` for each supported palette.
 
-The server rejects malformed JSON, unknown fields, non-arrays, wrong lengths, non-integers, values outside the palette, oversized bodies and invalid aliases with explicit JSON errors. It accepts no free text, uploaded image, HTML, SVG or arbitrary base64 data. SQLite stores the pixels as a checked 256-byte value, the optional alias, creation time, deployed commit, canonical SHA-256 content hash, format version, palette identifier and validated optional parent relation.
+The server rejects malformed JSON, unknown fields, non-arrays, wrong lengths, non-integers, values outside the palette, unsupported palette identities or versions, oversized bodies and invalid aliases with explicit JSON errors. Omitting both palette fields keeps legacy clients on `vga16@1`; supplying only one is invalid. It accepts no free text, uploaded image, HTML, SVG or arbitrary base64 data. SQLite stores the pixels as a checked 256-byte value, the optional alias, creation time, deployed commit, canonical SHA-256 content hash, format version, explicit palette identity and validated optional parent relation.
 
 ## HTTP surface
 
@@ -23,6 +25,8 @@ The HTTP surface is intentionally small:
 | `GET` | `/wall` | Embedded HTML wall, or bounded cursor JSON with `Accept: application/json` / `?format=json`. |
 | `GET` | `/random` | Redirect to one randomly selected public postcard without ranking. |
 | `GET` | `/challenge` | Current deterministic bilingual daily challenge for the UTC date. |
+| `GET` | `/palettes` | Closed versioned palette catalog consumed by the backend and editor. |
+| `GET` | `/stats` | Public SQLite-derived counts with no visitor analytics or popularity ranking. |
 | `GET` | `/week` | Current ISO UTC week mosaic page using public postcards only. |
 | `GET` | `/week.png` | Deterministic 512×512 PNG of up to 64 recent public postcards from the current UTC week. |
 | `GET` | `/p/{id}` | Shareable page for one public postcard. |
@@ -56,9 +60,11 @@ Override `ADDR` or `DB_PATH` through environment variables. Operational controls
 
 The daily challenge is selected deterministically from an embedded version-1 bilingual catalog using the UTC calendar date. It requires no cron job, database table, account, ranking or participation tracking; changing the displayed language only selects the already validated ES/EN prompt.
 
-The weekly mosaic is derived at request time from the current ISO week in UTC. It selects the latest 64 visible postcards, restores chronological order within the 8×8 mosaic, renders a deterministic 512×512 VGA PNG, and excludes hidden or out-of-week content. It adds no table, cron job, upload format, account or tracking signal.
+The weekly mosaic is derived at request time from the current ISO week in UTC. It selects the latest 64 visible postcards, restores chronological order within the 8×8 mosaic, renders each tile with its stored palette identity into a deterministic 512×512 PNG, and excludes hidden or out-of-week content. It adds no table, cron job, upload format, account or tracking signal.
 
-The editor keeps a versioned, strictly validated draft in `localStorage`, persists the selected language separately, groups pointer strokes into bounded undo history, interpolates fast movement and supports pencil, eraser, fill, eyedropper and horizontal/vertical flips. Opening `/wall?remix=<id>` loads only a public version-1 `vga16` postcard through `/p/<id>.json`, validates its hash and pixels, and preserves the parent ID in the draft and publication payload. The canvas is keyboard-focusable: arrows move the active cell, Space/Enter applies the tool, P/E/F/I select tools, 0–F selects a VGA color and Ctrl+Z/Ctrl+Y control history. Publishing is locked while one request is active. No draft or language value is sent to a third party.
+Public statistics are also derived at request time from a read-only SQLite snapshot. They expose only total visible postcards, visible postcards in the current ISO week, visible remixes whose parent is still public, and counts grouped by the closed palette catalog. They do not record or expose visits, IP addresses, cookies, accounts, fingerprints, popularity scores or rankings.
+
+The editor keeps a versioned, strictly validated draft in `localStorage`, persists the selected language separately, groups pointer strokes into bounded undo history, interpolates fast movement and supports pencil, eraser, fill, eyedropper and horizontal/vertical flips. Opening `/wall?remix=<id>` loads only a public version-1 postcard through `/p/<id>.json`, validates its hash, pixels and catalog palette identity, and preserves both palette and parent ID in the draft and publication payload. The canvas is keyboard-focusable: arrows move the active cell, Space/Enter applies the tool, P/E/F/I select tools, 0–F selects a color from the active fixed palette and Ctrl+Z/Ctrl+Y control history. Publishing is locked while one request is active. No draft or language value is sent to a third party.
 
 JavaScript editor logic has dependency-free tests executed with Node only in development and CI; Node is not present in the production image or browser runtime.
 
@@ -96,7 +102,7 @@ pixelgrama admin restore --id 42 --reason "review completed"
 
 ## SQLite operations
 
-The current schema version is `3`. Databases at versions `0`, `1` or `2` are migrated sequentially and transactionally without recreating or deleting existing postcards. Version 2 adds moderation state and a persistent moderation event history; version 3 adds `content_hash`, `format_version`, `palette_id` and `parent_id`, computing canonical hashes for every existing postcard. Existing postcards remain visible and have no parent. A database with a version greater than the supported version is rejected before serving traffic.
+The current schema version is `4`. Databases at versions `0` through `3` are migrated sequentially and transactionally without recreating or deleting existing postcards. Version 2 adds moderation state and a persistent moderation event history; version 3 adds content identity and remix lineage; version 4 adds the authoritative `palette_catalog_id` and `palette_version` columns, backfills every existing postcard as `vga16@1`, and installs database checks/triggers for the closed catalog. The legacy version-3 `palette_id` column remains only for safe on-disk compatibility. Existing VGA hashes are preserved exactly; new palette identities use palette-specific hash domains. A database with a version greater than the supported version is rejected before serving traffic.
 
 `/healthz` remains a liveness endpoint. `/readyz` executes a real SQLite ping and verifies that `PRAGMA user_version` matches the binary.
 

@@ -5,32 +5,35 @@
     WIDTH,
     HEIGHT,
     DRAFT_VERSION,
+    PALETTE_CATALOG,
     EditorModel,
     validateDraft,
-    validPixels,
+    paletteByID,
+    normalizePostcard,
+    normalizePublicStats,
     formatPostcardDate,
     wallRequestPath,
     normalizeWallPage,
     normalizeDailyChallenge,
     dailyChallengePrompt
   } = globalThis.PixelgramaEditor;
-  const palette = [
-    "#000000", "#0000AA", "#00AA00", "#00AAAA",
-    "#AA0000", "#AA00AA", "#AA5500", "#AAAAAA",
-    "#555555", "#5555FF", "#55FF55", "#55FFFF",
-    "#FF5555", "#FF55FF", "#FFFF55", "#FFFFFF"
-  ];
   const DRAFT_KEY = "pixelgrama:draft";
   const LANGUAGE_KEY = "pixelgrama:language";
   const editor = document.getElementById("editor");
   const context = editor.getContext("2d", { alpha: false });
   const paletteNode = document.getElementById("palette");
+  const paletteSelectNode = document.getElementById("palette-select");
   const aliasNode = document.getElementById("alias");
   const statusNode = document.getElementById("status");
   const wallNode = document.getElementById("wall");
   const wallStateNode = document.getElementById("wall-state");
   const challengeDateNode = document.getElementById("challenge-date");
   const challengePromptNode = document.getElementById("challenge-prompt");
+  const statsWeekNode = document.getElementById("stats-week");
+  const statsTotalNode = document.getElementById("stats-total");
+  const statsWeeklyNode = document.getElementById("stats-weekly");
+  const statsRemixesNode = document.getElementById("stats-remixes");
+  const statsPalettesNode = document.getElementById("stats-palettes");
   const loadMoreNode = document.getElementById("load-more");
   const publishNode = document.getElementById("publish");
   const undoNode = document.getElementById("undo");
@@ -44,6 +47,7 @@
   let currentWallStatus = "loading";
   let remixParentID = null;
   let dailyChallenge;
+  let publicStats;
 
   const messages = {
     ready: { es: "LISTO", en: "READY" },
@@ -63,7 +67,8 @@
     empty: { es: "AÚN NO HAY POSTALES", en: "NO POSTCARDS YET" },
     loaded: { es: "MURO ACTUALIZADO", en: "WALL UPDATED" },
     loading: { es: "CARGANDO", en: "LOADING" },
-    challengeUnavailable: { es: "RETO NO DISPONIBLE", en: "CHALLENGE UNAVAILABLE" }
+    challengeUnavailable: { es: "RETO NO DISPONIBLE", en: "CHALLENGE UNAVAILABLE" },
+    statsUnavailable: { es: "ESTADÍSTICAS NO DISPONIBLES", en: "STATISTICS UNAVAILABLE" }
   };
 
   function storageGet(key) {
@@ -148,7 +153,11 @@
     document.getElementById("lang-en").setAttribute("aria-pressed", String(language === "en"));
     statusNode.textContent = translated(currentStatus);
     wallStateNode.textContent = translated(currentWallStatus);
+    paletteSelectNode.replaceChildren();
+    buildPaletteOptions();
+    updateControls();
     renderDailyChallenge();
+    renderPublicStats();
   }
 
   function persistDraft() {
@@ -156,6 +165,7 @@
   }
 
   function updateControls() {
+    paletteSelectNode.value = paletteOptionValue(activePalette());
     paletteNode.querySelectorAll("button").forEach((item, index) => {
       item.dataset.selected = String(index === model.selected);
     });
@@ -168,11 +178,12 @@
   }
 
   function drawEditor() {
+    const colors = activePalette().colors;
     const cell = editor.width / WIDTH;
     for (let index = 0; index < model.pixels.length; index += 1) {
       const x = (index % WIDTH) * cell;
       const y = Math.floor(index / WIDTH) * cell;
-      context.fillStyle = palette[model.pixels[index]];
+      context.fillStyle = colors[model.pixels[index]];
       context.fillRect(x, y, cell, cell);
     }
     context.strokeStyle = "#555555";
@@ -213,13 +224,33 @@
     return { x, y };
   }
 
+  function activePalette() {
+    return paletteByID(model.paletteId, model.paletteVersion);
+  }
+
+  function paletteOptionValue(palette) {
+    return palette.id + "@" + palette.version;
+  }
+
+  function buildPaletteOptions() {
+    PALETTE_CATALOG.palettes.forEach((palette) => {
+      const option = document.createElement("option");
+      option.value = paletteOptionValue(palette);
+      option.textContent = (language === "en" ? palette.nameEN : palette.nameES)
+        + " (" + palette.id + " v" + palette.version + ")";
+      paletteSelectNode.append(option);
+    });
+  }
+
   function buildPalette() {
-    palette.forEach((color, index) => {
+    const palette = activePalette();
+    paletteNode.replaceChildren();
+    palette.colors.forEach((color, index) => {
       const button = document.createElement("button");
       button.type = "button";
       button.style.backgroundColor = color;
       button.dataset.selected = String(index === model.selected);
-      button.setAttribute("aria-label", "VGA " + index + ": " + color);
+      button.setAttribute("aria-label", palette.id + " " + index + ": " + color);
       button.addEventListener("click", () => {
         model.setSelected(index);
         updateControls();
@@ -230,31 +261,33 @@
   }
 
   function drawPostcard(item) {
-    const id = item && Number(item.id);
-    if (!item || !validPixels(item.pixels) || !Number.isSafeInteger(id) || id < 1 || renderedPostcardIDs.has(id)) {
+    const postcard = normalizePostcard(item);
+    if (postcard === null || renderedPostcardIDs.has(postcard.id)) {
       return false;
     }
-    renderedPostcardIDs.add(id);
+    renderedPostcardIDs.add(postcard.id);
     const article = document.createElement("article");
     article.className = "postcard";
     const canvas = document.createElement("canvas");
     canvas.width = 256;
     canvas.height = 256;
     const postcardContext = canvas.getContext("2d", { alpha: false });
+    const colors = paletteByID(postcard.paletteId, postcard.paletteVersion).colors;
     const cell = 16;
-    item.pixels.forEach((value, index) => {
-      postcardContext.fillStyle = palette[value];
+    postcard.pixels.forEach((value, index) => {
+      postcardContext.fillStyle = colors[value];
       postcardContext.fillRect((index % 16) * cell, Math.floor(index / 16) * cell, cell, cell);
     });
     const alias = document.createElement("p");
     alias.className = "alias";
-    alias.textContent = typeof item.alias === "string" && item.alias.length > 0 ? item.alias : "ANON";
+    alias.textContent = postcard.alias || "ANON";
     const meta = document.createElement("p");
     meta.className = "meta";
-    meta.textContent = formatPostcardDate(item.created_at, language);
+    meta.textContent = formatPostcardDate(postcard.createdAt, language)
+      + " · " + postcard.paletteId + "@" + postcard.paletteVersion;
     const share = document.createElement("a");
     share.className = "share-link";
-    share.href = "/p/" + id;
+    share.href = "/p/" + postcard.id;
     share.dataset.es = "ABRIR / REMIX";
     share.dataset.en = "OPEN / REMIX";
     share.textContent = share.dataset[language];
@@ -293,6 +326,62 @@
       dailyChallenge = null;
     }
     renderDailyChallenge();
+  }
+
+  function renderPublicStats() {
+    statsPalettesNode.replaceChildren();
+    if (publicStats === undefined) {
+      statsWeekNode.textContent = "----";
+      statsTotalNode.textContent = "—";
+      statsWeeklyNode.textContent = "—";
+      statsRemixesNode.textContent = "—";
+      return;
+    }
+    if (publicStats === null) {
+      statsWeekNode.textContent = translated("statsUnavailable");
+      statsTotalNode.textContent = "—";
+      statsWeeklyNode.textContent = "—";
+      statsRemixesNode.textContent = "—";
+      return;
+    }
+    statsWeekNode.textContent = publicStats.weekKey;
+    statsTotalNode.textContent = String(publicStats.totalPostcards);
+    statsWeeklyNode.textContent = String(publicStats.postcardsThisWeek);
+    statsRemixesNode.textContent = String(publicStats.remixCount);
+    publicStats.palettes.forEach((item) => {
+      const palette = paletteByID(item.paletteId, item.paletteVersion);
+      const row = document.createElement("li");
+      const swatches = document.createElement("span");
+      swatches.className = "stats-swatches";
+      palette.colors.forEach((color) => {
+        const swatch = document.createElement("i");
+        swatch.style.backgroundColor = color;
+        swatches.append(swatch);
+      });
+      const label = document.createElement("span");
+      label.textContent = (language === "en" ? item.nameEN : item.nameES)
+        + " · " + item.paletteId + "@" + item.paletteVersion;
+      const count = document.createElement("strong");
+      count.textContent = String(item.postcards);
+      row.append(swatches, label, count);
+      statsPalettesNode.append(row);
+    });
+  }
+
+  async function loadPublicStats() {
+    try {
+      const response = await fetch("/stats", { headers: { Accept: "application/json" } });
+      if (!response.ok) {
+        throw new Error("stats");
+      }
+      publicStats = normalizePublicStats(await response.json());
+      if (publicStats === null) {
+        throw new Error("stats payload");
+      }
+    } catch (error) {
+      publicStats = null;
+    }
+    renderPublicStats();
   }
 
   async function loadWall(reset) {
@@ -335,7 +424,11 @@
     publishing = true;
     updateControls();
     setStatus("publishing");
-    const payload = { pixels: model.pixels.slice() };
+    const payload = {
+      pixels: model.pixels.slice(),
+      palette_id: model.paletteId,
+      palette_version: model.paletteVersion
+    };
     if (alias.length > 0) {
       payload.alias = alias;
     }
@@ -398,13 +491,18 @@
       if (!response.ok) {
         throw new Error("remix");
       }
-      const item = await response.json();
-      if (!item || item.id !== remixID || !validPixels(item.pixels)
-        || item.format_version !== 1 || item.palette_id !== "vga16"
-        || typeof item.content_hash !== "string" || !/^[0-9a-f]{64}$/.test(item.content_hash)) {
+      const item = normalizePostcard(await response.json());
+      if (item === null || item.id !== remixID) {
         throw new Error("remix");
       }
-      model = new EditorModel({ pixels: item.pixels, selected: model.selected, tool: "pencil" });
+      model = new EditorModel({
+        pixels: item.pixels,
+        selected: model.selected,
+        tool: "pencil",
+        paletteId: item.paletteId,
+        paletteVersion: item.paletteVersion
+      });
+      buildPalette();
       aliasNode.value = "";
       remixParentID = remixID;
       setStatus("remixLoaded");
@@ -492,13 +590,22 @@
     if (event.key === "[" || event.key === "]") {
       event.preventDefault();
       const delta = event.key === "[" ? -1 : 1;
-      model.setSelected((model.selected + delta + palette.length) % palette.length);
+      model.setSelected((model.selected + delta + activePalette().colors.length) % activePalette().colors.length);
       editorChanged(true);
       return;
     }
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
       model.applyAt(model.cursor.x, model.cursor.y);
+      editorChanged(true);
+    }
+  });
+
+  paletteSelectNode.addEventListener("change", () => {
+    const parts = paletteSelectNode.value.split("@");
+    const version = Number(parts[1]);
+    if (parts.length === 2 && model.setPalette(parts[0], version)) {
+      buildPalette();
       editorChanged(true);
     }
   });
@@ -552,5 +659,6 @@
   updateControls();
   loadRemix();
   loadDailyChallenge();
+  loadPublicStats();
   loadWall(true);
 })();

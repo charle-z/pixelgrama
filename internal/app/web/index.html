@@ -32,7 +32,7 @@
 <section class="editor-panel" aria-labelledby="editor-title">
 <div class="section-bar">
 <h2 id="editor-title" data-es="01 // DIBUJAR" data-en="01 // DRAW">01 // DIBUJAR</h2>
-<span data-es="16×16 · 16 COLORES VGA" data-en="16×16 · 16 VGA COLORS">16×16 · 16 COLORES VGA</span>
+<span data-es="16×16 · PALETAS FIJAS VERSIONADAS" data-en="16×16 · FIXED VERSIONED PALETTES">16×16 · PALETAS FIJAS VERSIONADAS</span>
 </div>
 <div class="editor-layout">
 <div class="canvas-column">
@@ -57,8 +57,10 @@
 <button id="flip-horizontal" type="button" data-es="VOLTEAR ↔" data-en="FLIP ↔">VOLTEAR ↔</button>
 <button id="flip-vertical" type="button" data-es="VOLTEAR ↕" data-en="FLIP ↕">VOLTEAR ↕</button>
 </div>
+<label for="palette-select" data-es="PALETA" data-en="PALETTE">PALETA</label>
+<select id="palette-select" aria-label="Paleta versionada"></select>
 <label data-es="COLOR ACTIVO" data-en="ACTIVE COLOR">COLOR ACTIVO</label>
-<div id="palette" class="palette" role="group" aria-label="Paleta VGA"></div>
+<div id="palette" class="palette" role="group" aria-label="Colores de la paleta activa"></div>
 <label for="alias" data-es="ALIAS OPCIONAL" data-en="OPTIONAL ALIAS">ALIAS OPCIONAL</label>
 <input id="alias" type="text" maxlength="16" pattern="[A-Za-z0-9 _-]*" autocomplete="off" spellcheck="false" aria-describedby="alias-rule">
 <p id="alias-rule" data-es="Máximo 16: letras, números, espacio, _ y -" data-en="Maximum 16: letters, numbers, space, _ and -">Máximo 16: letras, números, espacio, _ y -</p>
@@ -70,9 +72,22 @@
 </div>
 </div>
 </section>
+<section class="stats-panel" aria-labelledby="stats-title">
+<div class="section-bar">
+<h2 id="stats-title" data-es="02 // ESTADÍSTICAS PÚBLICAS" data-en="02 // PUBLIC STATISTICS">02 // ESTADÍSTICAS PÚBLICAS</h2>
+<span id="stats-week">----</span>
+</div>
+<p class="stats-note" data-es="Derivadas de las postales públicas en SQLite. Estas estadísticas no almacenan cookies, cuentas, visitas, direcciones IP ni huellas." data-en="Derived from public postcards in SQLite. These statistics store no cookies, accounts, visits, IP addresses or fingerprints.">Derivadas de las postales públicas en SQLite. Estas estadísticas no almacenan cookies, cuentas, visitas, direcciones IP ni huellas.</p>
+<div class="stats-grid">
+<p><strong id="stats-total">—</strong><span data-es="TOTAL PÚBLICAS" data-en="TOTAL PUBLIC">TOTAL PÚBLICAS</span></p>
+<p><strong id="stats-weekly">—</strong><span data-es="ESTA SEMANA" data-en="THIS WEEK">ESTA SEMANA</span></p>
+<p><strong id="stats-remixes">—</strong><span>REMIXES</span></p>
+</div>
+<ul id="stats-palettes" class="stats-palettes" aria-live="polite"></ul>
+</section>
 <section class="wall-panel" aria-labelledby="wall-title">
 <div class="section-bar">
-<h2 id="wall-title" data-es="02 // MURO PÚBLICO" data-en="02 // PUBLIC WALL">02 // MURO PÚBLICO</h2>
+<h2 id="wall-title" data-es="03 // MURO PÚBLICO" data-en="03 // PUBLIC WALL">03 // MURO PÚBLICO</h2>
 <span id="wall-state">CARGANDO</span>
 </div>
 <div class="explore-links">

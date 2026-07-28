@@ -44,7 +44,7 @@ VALUES (?, 'LEGACY', 'old-commit', '2026-07-27T00:00:00Z');`, pixels.Bytes()); e
 	if item.ContentHash != core.ContentHash(pixels) {
 		t.Fatalf("content hash = %q", item.ContentHash)
 	}
-	if item.FormatVersion != core.FormatVersion || item.PaletteID != core.PaletteID || item.ParentID != nil {
+	if item.FormatVersion != core.FormatVersion || item.PaletteID != core.DefaultPaletteID || item.PaletteVersion != core.DefaultPaletteVersion || item.ParentID != nil {
 		t.Fatalf("migrated identity = %#v", item)
 	}
 }
@@ -68,7 +68,7 @@ func TestInsertWithParentAndGetPublic(t *testing.T) {
 	if child.ParentID == nil || *child.ParentID != parent.ID {
 		t.Fatalf("child parent = %#v", child.ParentID)
 	}
-	if child.ContentHash != core.ContentHash(child.Pixels) || child.FormatVersion != core.FormatVersion || child.PaletteID != core.PaletteID {
+	if child.ContentHash != core.ContentHash(child.Pixels) || child.FormatVersion != core.FormatVersion || child.PaletteID != core.DefaultPaletteID || child.PaletteVersion != core.DefaultPaletteVersion {
 		t.Fatalf("child identity = %#v", child)
 	}
 	loaded, err := database.GetPublic(ctx, child.ID)

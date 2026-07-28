@@ -175,12 +175,16 @@ func renderWeeklyPNG(items []store.Postcard) ([]byte, error) {
 		if postcardIndex >= weeklyMaxPostcards {
 			break
 		}
+		colors, err := paletteColors(item.PaletteID, item.PaletteVersion)
+		if err != nil {
+			return nil, err
+		}
 		tileX := (postcardIndex % weeklyColumns) * weeklyTileSize
 		tileY := (postcardIndex / weeklyColumns) * weeklyTileSize
 		for pixelIndex, value := range item.Pixels {
 			x0 := tileX + (pixelIndex%16)*weeklyPixelScale
 			y0 := tileY + (pixelIndex/16)*weeklyPixelScale
-			fill := vgaPalette[value]
+			fill := colors[value]
 			for y := y0; y < y0+weeklyPixelScale; y++ {
 				for x := x0; x < x0+weeklyPixelScale; x++ {
 					imageValue.SetRGBA(x, y, fill)

@@ -17,23 +17,26 @@ import (
 
 const postcardPNGScale = 16
 
-var vgaPalette = [core.PaletteSize]color.RGBA{
-	{0x00, 0x00, 0x00, 0xff},
-	{0x00, 0x00, 0xaa, 0xff},
-	{0x00, 0xaa, 0x00, 0xff},
-	{0x00, 0xaa, 0xaa, 0xff},
-	{0xaa, 0x00, 0x00, 0xff},
-	{0xaa, 0x00, 0xaa, 0xff},
-	{0xaa, 0x55, 0x00, 0xff},
-	{0xaa, 0xaa, 0xaa, 0xff},
-	{0x55, 0x55, 0x55, 0xff},
-	{0x55, 0x55, 0xff, 0xff},
-	{0x55, 0xff, 0x55, 0xff},
-	{0x55, 0xff, 0xff, 0xff},
-	{0xff, 0x55, 0x55, 0xff},
-	{0xff, 0x55, 0xff, 0xff},
-	{0xff, 0xff, 0x55, 0xff},
-	{0xff, 0xff, 0xff, 0xff},
+var vgaPalette = mustPaletteColors(core.DefaultPaletteID, core.DefaultPaletteVersion)
+
+func mustPaletteColors(id string, version int) [core.PaletteSize]color.RGBA {
+	colors, err := paletteColors(id, version)
+	if err != nil {
+		panic(err)
+	}
+	return colors
+}
+
+func paletteColors(id string, version int) ([core.PaletteSize]color.RGBA, error) {
+	var colors [core.PaletteSize]color.RGBA
+	for index := range colors {
+		value, err := core.PaletteColor(id, version, index)
+		if err != nil {
+			return colors, err
+		}
+		colors[index] = value
+	}
+	return colors, nil
 }
 
 func parseSharePath(path string) (int64, string, bool) {
@@ -93,7 +96,7 @@ func (s *server) handleShare(w http.ResponseWriter, r *http.Request) {
 	case "json":
 		s.writeJSON(w, http.StatusOK, item)
 	case "png":
-		data, err := renderPostcardPNG(item.Pixels)
+		data, err := renderPostcardPNGWithPalette(item.Pixels, item.PaletteID, item.PaletteVersion)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, "render_error", "postcard image could not be rendered")
 			return
@@ -118,12 +121,20 @@ func (s *server) handleShare(w http.ResponseWriter, r *http.Request) {
 }
 
 func renderPostcardPNG(pixels core.Pixels) ([]byte, error) {
+	return renderPostcardPNGWithPalette(pixels, core.DefaultPaletteID, core.DefaultPaletteVersion)
+}
+
+func renderPostcardPNGWithPalette(pixels core.Pixels, paletteID string, paletteVersion int) ([]byte, error) {
+	colors, err := paletteColors(paletteID, paletteVersion)
+	if err != nil {
+		return nil, err
+	}
 	size := 16 * postcardPNGScale
 	imageValue := image.NewRGBA(image.Rect(0, 0, size, size))
 	for index, value := range pixels {
 		x0 := (index % 16) * postcardPNGScale
 		y0 := (index / 16) * postcardPNGScale
-		fill := vgaPalette[value]
+		fill := colors[value]
 		for y := y0; y < y0+postcardPNGScale; y++ {
 			for x := x0; x < x0+postcardPNGScale; x++ {
 				imageValue.SetRGBA(x, y, fill)

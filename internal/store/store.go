@@ -18,15 +18,16 @@ var (
 )
 
 type Postcard struct {
-	ID            int64       `json:"id"`
-	Pixels        core.Pixels `json:"pixels"`
-	Alias         *string     `json:"alias,omitempty"`
-	Commit        string      `json:"commit"`
-	CreatedAt     time.Time   `json:"created_at"`
-	ContentHash   string      `json:"content_hash"`
-	FormatVersion int         `json:"format_version"`
-	PaletteID     string      `json:"palette_id"`
-	ParentID      *int64      `json:"parent_id,omitempty"`
+	ID             int64       `json:"id"`
+	Pixels         core.Pixels `json:"pixels"`
+	Alias          *string     `json:"alias,omitempty"`
+	Commit         string      `json:"commit"`
+	CreatedAt      time.Time   `json:"created_at"`
+	ContentHash    string      `json:"content_hash"`
+	FormatVersion  int         `json:"format_version"`
+	PaletteID      string      `json:"palette_id"`
+	PaletteVersion int         `json:"palette_version"`
+	ParentID       *int64      `json:"parent_id,omitempty"`
 }
 
 type Store struct {
@@ -69,7 +70,14 @@ func (s *Store) Insert(ctx context.Context, pixels core.Pixels, alias *string, c
 }
 
 func (s *Store) InsertWithParent(ctx context.Context, pixels core.Pixels, alias *string, commit string, createdAt time.Time, parentID *int64) (Postcard, error) {
+	return s.InsertWithPalette(ctx, pixels, alias, commit, createdAt, core.DefaultPaletteID, core.DefaultPaletteVersion, parentID)
+}
+
+func (s *Store) InsertWithPalette(ctx context.Context, pixels core.Pixels, alias *string, commit string, createdAt time.Time, paletteID string, paletteVersion int, parentID *int64) (Postcard, error) {
 	if err := core.ValidateAlias(alias); err != nil {
+		return Postcard{}, err
+	}
+	if err := core.ValidatePalette(paletteID, paletteVersion); err != nil {
 		return Postcard{}, err
 	}
 	if parentID != nil && *parentID < 1 {
@@ -94,22 +102,26 @@ func (s *Store) InsertWithParent(ctx context.Context, pixels core.Pixels, alias 
 	}
 
 	var latest []byte
-	err = tx.QueryRowContext(ctx, "SELECT pixels FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT 1").Scan(&latest)
+	var latestPaletteID string
+	var latestPaletteVersion int
+	err = tx.QueryRowContext(ctx, `
+SELECT pixels, palette_catalog_id, palette_version
+FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT 1`).Scan(&latest, &latestPaletteID, &latestPaletteVersion)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return Postcard{}, fmt.Errorf("read latest postcard: %w", err)
 	}
-	if err == nil && bytes.Equal(latest, pixels[:]) {
+	if err == nil && bytes.Equal(latest, pixels[:]) && latestPaletteID == paletteID && latestPaletteVersion == paletteVersion {
 		return Postcard{}, ErrDuplicate
 	}
 
 	createdAt = createdAt.UTC()
-	contentHash := core.ContentHash(pixels)
+	contentHash := core.ContentHashForPalette(pixels, paletteID, paletteVersion)
 	result, err := tx.ExecContext(ctx,
 		`INSERT INTO postcards (
-pixels, alias, deployed_commit, created_at, content_hash, format_version, palette_id, parent_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+pixels, alias, deployed_commit, created_at, content_hash, format_version, palette_id, parent_id, palette_catalog_id, palette_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		pixels.Bytes(), nullableAlias(alias), commit, createdAt.Format(time.RFC3339Nano),
-		contentHash, core.FormatVersion, core.PaletteID, nullableParent(parentID),
+		contentHash, core.FormatVersion, core.DefaultPaletteID, nullableParent(parentID), paletteID, paletteVersion,
 	)
 	if err != nil {
 		return Postcard{}, fmt.Errorf("insert postcard: %w", err)
@@ -122,19 +134,20 @@ pixels, alias, deployed_commit, created_at, content_hash, format_version, palett
 		return Postcard{}, fmt.Errorf("commit insert: %w", err)
 	}
 	return Postcard{
-		ID:            id,
-		Pixels:        pixels,
-		Alias:         cloneAlias(alias),
-		Commit:        commit,
-		CreatedAt:     createdAt,
-		ContentHash:   contentHash,
-		FormatVersion: core.FormatVersion,
-		PaletteID:     core.PaletteID,
-		ParentID:      cloneParent(parentID),
+		ID:             id,
+		Pixels:         pixels,
+		Alias:          cloneAlias(alias),
+		Commit:         commit,
+		CreatedAt:      createdAt,
+		ContentHash:    contentHash,
+		FormatVersion:  core.FormatVersion,
+		PaletteID:      paletteID,
+		PaletteVersion: paletteVersion,
+		ParentID:       cloneParent(parentID),
 	}, nil
 }
 
-const postcardColumns = "id, pixels, alias, deployed_commit, created_at, content_hash, format_version, palette_id, CASE WHEN parent_id IS NOT NULL AND EXISTS (SELECT 1 FROM postcards AS parent WHERE parent.id = postcards.parent_id AND parent.moderation_status = 'visible') THEN parent_id ELSE NULL END"
+const postcardColumns = "id, pixels, alias, deployed_commit, created_at, content_hash, format_version, palette_catalog_id, palette_version, CASE WHEN parent_id IS NOT NULL AND EXISTS (SELECT 1 FROM postcards AS parent WHERE parent.id = postcards.parent_id AND parent.moderation_status = 'visible') THEN parent_id ELSE NULL END"
 
 func (s *Store) List(ctx context.Context, limit, offset int) ([]Postcard, error) {
 	if limit < 1 || offset < 0 {
@@ -196,6 +209,7 @@ func scanPostcard(row rowScanner) (Postcard, error) {
 		&item.ContentHash,
 		&item.FormatVersion,
 		&item.PaletteID,
+		&item.PaletteVersion,
 		&parent,
 	); err != nil {
 		return Postcard{}, err
