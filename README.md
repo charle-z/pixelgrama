@@ -8,8 +8,9 @@ A postcard contains only:
 
 - `pixels`: exactly 256 JSON integers, each from `0` through `15`.
 - `alias`: optional, at most 16 ASCII characters matching `[A-Za-z0-9 _-]`.
+- `parent_id`: optional positive integer identifying a public postcard used as the remix source.
 
-The server rejects malformed JSON, unknown fields, non-arrays, wrong lengths, non-integers, values outside the palette, oversized bodies and invalid aliases with explicit JSON errors. It accepts no free text, uploaded image, HTML, SVG or arbitrary base64 data. SQLite stores the pixels as a checked 256-byte value, the optional alias, creation time and deployed commit.
+The server rejects malformed JSON, unknown fields, non-arrays, wrong lengths, non-integers, values outside the palette, oversized bodies and invalid aliases with explicit JSON errors. It accepts no free text, uploaded image, HTML, SVG or arbitrary base64 data. SQLite stores the pixels as a checked 256-byte value, the optional alias, creation time, deployed commit, canonical SHA-256 content hash, format version, palette identifier and validated optional parent relation.
 
 ## HTTP surface
 
@@ -20,6 +21,9 @@ The HTTP surface is intentionally small:
 | `GET` | `/` | Permanent redirect to `/wall`. |
 | `POST` | `/postcard` | Validate and publish one JSON postcard. |
 | `GET` | `/wall` | Embedded HTML wall, or bounded JSON with `Accept: application/json` / `?format=json`. |
+| `GET` | `/p/{id}` | Shareable page for one public postcard. |
+| `GET` | `/p/{id}.json` | Canonical postcard JSON including content identity and parent relation. |
+| `GET` | `/p/{id}.png` | Deterministic 256×256 PNG using integer 16× scaling and no smoothing. |
 | `GET` | `/healthz` | Process liveness; does not depend on SQLite. |
 | `GET` | `/readyz` | SQLite and schema readiness. |
 | `GET` | `/version` | Deployed commit, repository and pull-request provenance. |
@@ -46,7 +50,7 @@ CGO_ENABLED=0 go run ./cmd/pixelgrama
 
 Override `ADDR` or `DB_PATH` through environment variables. Operational controls are `TRUSTED_PROXY_CIDRS`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` and `RATE_LIMIT_MAX_ENTRIES`. Invalid CIDRs, durations or non-positive limits stop startup. The default database path is `/data/pixelgrama.db`.
 
-The editor keeps a versioned, strictly validated draft in `localStorage`, persists the selected language separately, groups pointer strokes into bounded undo history, interpolates fast movement and supports pencil, eraser, fill, eyedropper and horizontal/vertical flips. The canvas is keyboard-focusable: arrows move the active cell, Space/Enter applies the tool, P/E/F/I select tools, 0–F selects a VGA color and Ctrl+Z/Ctrl+Y control history. Publishing is locked while one request is active. No draft or language value is sent to a third party.
+The editor keeps a versioned, strictly validated draft in `localStorage`, persists the selected language separately, groups pointer strokes into bounded undo history, interpolates fast movement and supports pencil, eraser, fill, eyedropper and horizontal/vertical flips. Opening `/wall?remix=<id>` loads only a public version-1 `vga16` postcard through `/p/<id>.json`, validates its hash and pixels, and preserves the parent ID in the draft and publication payload. The canvas is keyboard-focusable: arrows move the active cell, Space/Enter applies the tool, P/E/F/I select tools, 0–F selects a VGA color and Ctrl+Z/Ctrl+Y control history. Publishing is locked while one request is active. No draft or language value is sent to a third party.
 
 JavaScript editor logic has dependency-free tests executed with Node only in development and CI; Node is not present in the production image or browser runtime.
 
@@ -66,7 +70,7 @@ git diff --check
 
 `Dockerfile` is multi-stage: Go compiles a static CGO-disabled binary and the final Alpine image runs it as a non-root user. GitHub Actions performs tests, race detection, vet and static build on pull requests. Only a merge to `main` or a version tag publishes images to GHCR.
 
-The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, a verified SQLite backup and the administrative hide/restore flow.
+The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, shareable HTML/JSON/PNG, a validated remix parent, a verified SQLite backup and the administrative hide/restore flow.
 
 `docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built public `ghcr.io/charle-z/pixelgrama:latest` image instead of compiling on the CPU-limited VPS. Deploy only after the image workflow for the merged commit is available, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
 
@@ -84,7 +88,7 @@ pixelgrama admin restore --id 42 --reason "review completed"
 
 ## SQLite operations
 
-The current schema version is `2`. Databases at versions `0` or `1` are migrated sequentially and transactionally without recreating or deleting existing postcards. Version 2 adds moderation state and a persistent moderation event history; existing postcards become visible. A database with a version greater than the supported version is rejected before serving traffic.
+The current schema version is `3`. Databases at versions `0`, `1` or `2` are migrated sequentially and transactionally without recreating or deleting existing postcards. Version 2 adds moderation state and a persistent moderation event history; version 3 adds `content_hash`, `format_version`, `palette_id` and `parent_id`, computing canonical hashes for every existing postcard. Existing postcards remain visible and have no parent. A database with a version greater than the supported version is rejected before serving traffic.
 
 `/healthz` remains a liveness endpoint. `/readyz` executes a real SQLite ping and verifies that `PRAGMA user_version` matches the binary.
 

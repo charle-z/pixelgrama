@@ -12,7 +12,7 @@
   const PIXEL_COUNT = WIDTH * HEIGHT;
   const COLOR_COUNT = 16;
   const HISTORY_LIMIT = 64;
-  const DRAFT_VERSION = 1;
+  const DRAFT_VERSION = 2;
   const TOOLS = Object.freeze(["pencil", "eraser", "fill", "eyedropper"]);
 
   function validPixels(value) {
@@ -131,7 +131,7 @@
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return null;
     }
-    if (value.version !== DRAFT_VERSION || !validPixels(value.pixels)) {
+    if ((value.version !== 1 && value.version !== DRAFT_VERSION) || !validPixels(value.pixels)) {
       return null;
     }
     if (typeof value.alias !== "string" || !/^[A-Za-z0-9 _-]{0,16}$/.test(value.alias)) {
@@ -143,12 +143,20 @@
     if (!validTool(value.tool)) {
       return null;
     }
+    let parentId = null;
+    if (value.version === DRAFT_VERSION && value.parentId !== null && value.parentId !== undefined) {
+      if (!Number.isSafeInteger(value.parentId) || value.parentId < 1) {
+        return null;
+      }
+      parentId = value.parentId;
+    }
     return {
       version: DRAFT_VERSION,
       pixels: value.pixels.slice(),
       alias: value.alias,
       selected: value.selected,
-      tool: value.tool
+      tool: value.tool,
+      parentId
     };
   }
 
@@ -321,14 +329,16 @@
       return true;
     }
 
-    draft(alias) {
+    draft(alias, parentId) {
       const safeAlias = typeof alias === "string" && /^[A-Za-z0-9 _-]{0,16}$/.test(alias) ? alias : "";
+      const safeParentId = Number.isSafeInteger(parentId) && parentId > 0 ? parentId : null;
       return {
         version: DRAFT_VERSION,
         pixels: this.pixels.slice(),
         alias: safeAlias,
         selected: this.selected,
-        tool: this.tool
+        tool: this.tool,
+        parentId: safeParentId
       };
     }
   }

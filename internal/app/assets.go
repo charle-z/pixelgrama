@@ -9,7 +9,7 @@ import (
 	"html/template"
 )
 
-//go:embed web/index.html web/style.css web/editor.js web/app.js
+//go:embed web/index.html web/postcard.html web/style.css web/editor.js web/app.js
 var webFiles embed.FS
 
 type pageData struct {

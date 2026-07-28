@@ -12,14 +12,21 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var ErrDuplicate = errors.New("postcard is identical to the latest postcard")
+var (
+	ErrDuplicate      = errors.New("postcard is identical to the latest postcard")
+	ErrParentNotFound = errors.New("remix parent postcard is not public")
+)
 
 type Postcard struct {
-	ID        int64       `json:"id"`
-	Pixels    core.Pixels `json:"pixels"`
-	Alias     *string     `json:"alias,omitempty"`
-	Commit    string      `json:"commit"`
-	CreatedAt time.Time   `json:"created_at"`
+	ID            int64       `json:"id"`
+	Pixels        core.Pixels `json:"pixels"`
+	Alias         *string     `json:"alias,omitempty"`
+	Commit        string      `json:"commit"`
+	CreatedAt     time.Time   `json:"created_at"`
+	ContentHash   string      `json:"content_hash"`
+	FormatVersion int         `json:"format_version"`
+	PaletteID     string      `json:"palette_id"`
+	ParentID      *int64      `json:"parent_id,omitempty"`
 }
 
 type Store struct {
@@ -58,14 +65,33 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Insert(ctx context.Context, pixels core.Pixels, alias *string, commit string, createdAt time.Time) (Postcard, error) {
+	return s.InsertWithParent(ctx, pixels, alias, commit, createdAt, nil)
+}
+
+func (s *Store) InsertWithParent(ctx context.Context, pixels core.Pixels, alias *string, commit string, createdAt time.Time, parentID *int64) (Postcard, error) {
 	if err := core.ValidateAlias(alias); err != nil {
 		return Postcard{}, err
+	}
+	if parentID != nil && *parentID < 1 {
+		return Postcard{}, ErrParentNotFound
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Postcard{}, fmt.Errorf("begin insert: %w", err)
 	}
 	defer tx.Rollback()
+
+	if parentID != nil {
+		var exists int
+		if err := tx.QueryRowContext(ctx,
+			"SELECT 1 FROM postcards WHERE id = ? AND moderation_status = 'visible'",
+			*parentID,
+		).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+			return Postcard{}, ErrParentNotFound
+		} else if err != nil {
+			return Postcard{}, fmt.Errorf("validate remix parent: %w", err)
+		}
+	}
 
 	var latest []byte
 	err = tx.QueryRowContext(ctx, "SELECT pixels FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT 1").Scan(&latest)
@@ -77,9 +103,13 @@ func (s *Store) Insert(ctx context.Context, pixels core.Pixels, alias *string, c
 	}
 
 	createdAt = createdAt.UTC()
+	contentHash := core.ContentHash(pixels)
 	result, err := tx.ExecContext(ctx,
-		"INSERT INTO postcards (pixels, alias, deployed_commit, created_at) VALUES (?, ?, ?, ?)",
+		`INSERT INTO postcards (
+pixels, alias, deployed_commit, created_at, content_hash, format_version, palette_id, parent_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		pixels.Bytes(), nullableAlias(alias), commit, createdAt.Format(time.RFC3339Nano),
+		contentHash, core.FormatVersion, core.PaletteID, nullableParent(parentID),
 	)
 	if err != nil {
 		return Postcard{}, fmt.Errorf("insert postcard: %w", err)
@@ -91,15 +121,27 @@ func (s *Store) Insert(ctx context.Context, pixels core.Pixels, alias *string, c
 	if err := tx.Commit(); err != nil {
 		return Postcard{}, fmt.Errorf("commit insert: %w", err)
 	}
-	return Postcard{ID: id, Pixels: pixels, Alias: cloneAlias(alias), Commit: commit, CreatedAt: createdAt}, nil
+	return Postcard{
+		ID:            id,
+		Pixels:        pixels,
+		Alias:         cloneAlias(alias),
+		Commit:        commit,
+		CreatedAt:     createdAt,
+		ContentHash:   contentHash,
+		FormatVersion: core.FormatVersion,
+		PaletteID:     core.PaletteID,
+		ParentID:      cloneParent(parentID),
+	}, nil
 }
+
+const postcardColumns = "id, pixels, alias, deployed_commit, created_at, content_hash, format_version, palette_id, CASE WHEN parent_id IS NOT NULL AND EXISTS (SELECT 1 FROM postcards AS parent WHERE parent.id = postcards.parent_id AND parent.moderation_status = 'visible') THEN parent_id ELSE NULL END"
 
 func (s *Store) List(ctx context.Context, limit, offset int) ([]Postcard, error) {
 	if limit < 1 || offset < 0 {
 		return nil, errors.New("limit must be positive and offset non-negative")
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, pixels, alias, deployed_commit, created_at FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT ? OFFSET ?",
+		"SELECT "+postcardColumns+" FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT ? OFFSET ?",
 		limit, offset,
 	)
 	if err != nil {
@@ -109,24 +151,9 @@ func (s *Store) List(ctx context.Context, limit, offset int) ([]Postcard, error)
 
 	items := make([]Postcard, 0, limit)
 	for rows.Next() {
-		var item Postcard
-		var data []byte
-		var alias sql.NullString
-		var created string
-		if err := rows.Scan(&item.ID, &data, &alias, &item.Commit, &created); err != nil {
-			return nil, fmt.Errorf("scan postcard: %w", err)
-		}
-		item.Pixels, err = core.PixelsFromBytes(data)
+		item, err := scanPostcard(rows)
 		if err != nil {
-			return nil, fmt.Errorf("decode postcard %d: %w", item.ID, err)
-		}
-		if alias.Valid {
-			value := alias.String
-			item.Alias = &value
-		}
-		item.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-		if err != nil {
-			return nil, fmt.Errorf("decode postcard time %d: %w", item.ID, err)
+			return nil, err
 		}
 		items = append(items, item)
 	}
@@ -134,6 +161,63 @@ func (s *Store) List(ctx context.Context, limit, offset int) ([]Postcard, error)
 		return nil, fmt.Errorf("iterate postcards: %w", err)
 	}
 	return items, nil
+}
+
+func (s *Store) GetPublic(ctx context.Context, id int64) (Postcard, error) {
+	if id < 1 {
+		return Postcard{}, ErrPostcardNotFound
+	}
+	row := s.db.QueryRowContext(ctx,
+		"SELECT "+postcardColumns+" FROM postcards WHERE id = ? AND moderation_status = 'visible'",
+		id,
+	)
+	item, err := scanPostcard(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Postcard{}, ErrPostcardNotFound
+	}
+	if err != nil {
+		return Postcard{}, err
+	}
+	return item, nil
+}
+
+func scanPostcard(row rowScanner) (Postcard, error) {
+	var item Postcard
+	var data []byte
+	var alias sql.NullString
+	var created string
+	var parent sql.NullInt64
+	if err := row.Scan(
+		&item.ID,
+		&data,
+		&alias,
+		&item.Commit,
+		&created,
+		&item.ContentHash,
+		&item.FormatVersion,
+		&item.PaletteID,
+		&parent,
+	); err != nil {
+		return Postcard{}, err
+	}
+	pixels, err := core.PixelsFromBytes(data)
+	if err != nil {
+		return Postcard{}, fmt.Errorf("decode postcard %d: %w", item.ID, err)
+	}
+	item.Pixels = pixels
+	if alias.Valid {
+		value := alias.String
+		item.Alias = &value
+	}
+	item.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return Postcard{}, fmt.Errorf("decode postcard time %d: %w", item.ID, err)
+	}
+	if parent.Valid {
+		value := parent.Int64
+		item.ParentID = &value
+	}
+	return item, nil
 }
 
 func nullableAlias(alias *string) any {
@@ -148,5 +232,20 @@ func cloneAlias(alias *string) *string {
 		return nil
 	}
 	value := *alias
+	return &value
+}
+
+func nullableParent(parentID *int64) any {
+	if parentID == nil {
+		return nil
+	}
+	return *parentID
+}
+
+func cloneParent(parentID *int64) *int64 {
+	if parentID == nil {
+		return nil
+	}
+	value := *parentID
 	return &value
 }

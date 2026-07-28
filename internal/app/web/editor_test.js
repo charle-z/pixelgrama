@@ -97,7 +97,8 @@ test("accepts only current, bounded and typed drafts", () => {
     pixels: new Array(256).fill(2),
     alias: "DRAFT_1",
     selected: 2,
-    tool: "pencil"
+    tool: "pencil",
+    parentId: null
   };
   assert.deepEqual(validateDraft(valid), valid);
   assert.equal(validateDraft({ ...valid, version: DRAFT_VERSION + 1 }), null);

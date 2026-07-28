@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/charle-z/pixelgrama/internal/core"
 )
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 var (
 	ErrFutureSchema = errors.New("database schema is newer than this binary")
@@ -41,6 +43,34 @@ CREATE TABLE moderation_events (
 );
 CREATE INDEX moderation_events_postcard_idx ON moderation_events(postcard_id, id DESC);`
 
+const schemaV3 = `
+ALTER TABLE postcards ADD COLUMN content_hash TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000'
+    CHECK(length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*');
+ALTER TABLE postcards ADD COLUMN format_version INTEGER NOT NULL DEFAULT 1 CHECK(format_version = 1);
+ALTER TABLE postcards ADD COLUMN palette_id TEXT NOT NULL DEFAULT 'vga16' CHECK(palette_id = 'vga16');
+ALTER TABLE postcards ADD COLUMN parent_id INTEGER NULL REFERENCES postcards(id) ON DELETE SET NULL;
+CREATE INDEX postcards_parent_idx ON postcards(parent_id, id DESC);
+CREATE TRIGGER postcards_content_identity_insert
+BEFORE INSERT ON postcards
+WHEN NEW.content_hash = '0000000000000000000000000000000000000000000000000000000000000000'
+  OR length(NEW.content_hash) != 64
+  OR NEW.content_hash GLOB '*[^0-9a-f]*'
+  OR NEW.format_version != 1
+  OR NEW.palette_id != 'vga16'
+BEGIN
+    SELECT RAISE(ABORT, 'invalid postcard content identity');
+END;
+CREATE TRIGGER postcards_content_identity_update
+BEFORE UPDATE OF content_hash, format_version, palette_id ON postcards
+WHEN NEW.content_hash = '0000000000000000000000000000000000000000000000000000000000000000'
+  OR length(NEW.content_hash) != 64
+  OR NEW.content_hash GLOB '*[^0-9a-f]*'
+  OR NEW.format_version != 1
+  OR NEW.palette_id != 'vga16'
+BEGIN
+    SELECT RAISE(ABORT, 'invalid postcard content identity');
+END;`
+
 func (s *Store) migrate(ctx context.Context) error {
 	version, err := s.SchemaVersion(ctx)
 	if err != nil {
@@ -57,6 +87,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			schema = schemaV1
 		case 2:
 			schema = schemaV2
+		case 3:
+			schema = schemaV3
 		default:
 			return fmt.Errorf("missing sqlite migration for version %d", nextVersion)
 		}
@@ -69,6 +101,12 @@ func (s *Store) migrate(ctx context.Context) error {
 			_ = tx.Rollback()
 			return fmt.Errorf("apply sqlite schema v%d: %w", nextVersion, err)
 		}
+		if nextVersion == 3 {
+			if err := populateContentIdentity(ctx, tx); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("populate sqlite content identity: %w", err)
+			}
+		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", nextVersion)); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("set sqlite schema version %d: %w", nextVersion, err)
@@ -77,6 +115,48 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("commit sqlite migration %d: %w", nextVersion, err)
 		}
 		version = nextVersion
+	}
+	return nil
+}
+
+func populateContentIdentity(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, "SELECT id, pixels FROM postcards ORDER BY id")
+	if err != nil {
+		return err
+	}
+	type identityItem struct {
+		id     int64
+		pixels core.Pixels
+	}
+	items := make([]identityItem, 0)
+	for rows.Next() {
+		var id int64
+		var data []byte
+		if err := rows.Scan(&id, &data); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		pixels, err := core.PixelsFromBytes(data)
+		if err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("decode postcard %d: %w", id, err)
+		}
+		items = append(items, identityItem{id: id, pixels: pixels})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE postcards
+SET content_hash = ?, format_version = ?, palette_id = ?
+WHERE id = ?`, core.ContentHash(item.pixels), core.FormatVersion, core.PaletteID, item.id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

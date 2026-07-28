@@ -100,6 +100,10 @@ func New(config Config) (http.Handler, error) {
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w, s.csp)
+	if strings.HasPrefix(r.URL.Path, "/p/") {
+		s.handleShare(w, r)
+		return
+	}
 	switch r.URL.Path {
 	case "/":
 		if r.Method != http.MethodGet {
@@ -168,8 +172,9 @@ func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 
 	var payload struct {
-		Pixels json.RawMessage `json:"pixels"`
-		Alias  *string         `json:"alias,omitempty"`
+		Pixels   json.RawMessage `json:"pixels"`
+		Alias    *string         `json:"alias,omitempty"`
+		ParentID *int64          `json:"parent_id,omitempty"`
 	}
 	if err := decoder.Decode(&payload); err != nil {
 		s.writeDecodeError(w, err)
@@ -210,7 +215,11 @@ func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := s.store.Insert(r.Context(), pixels, payload.Alias, s.commit, s.now())
+	item, err := s.store.InsertWithParent(r.Context(), pixels, payload.Alias, s.commit, s.now(), payload.ParentID)
+	if errors.Is(err, store.ErrParentNotFound) {
+		s.writeError(w, http.StatusUnprocessableEntity, "invalid_parent", "parent postcard is not public")
+		return
+	}
 	if errors.Is(err, store.ErrDuplicate) {
 		s.writeError(w, http.StatusConflict, "duplicate_postcard", "postcard is identical to the latest postcard")
 		return

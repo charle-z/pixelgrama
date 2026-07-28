@@ -73,6 +73,19 @@ jobs:
             -H 'Content-Type: application/json' \
             --data "${payload}" \
             http://127.0.0.1:18080/postcard | jq -r '.id')"
+          curl --fail --silent "http://127.0.0.1:18080/p/${postcard_id}" | grep -q "wall?remix=${postcard_id}"
+          curl --fail --silent "http://127.0.0.1:18080/p/${postcard_id}.json" \
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .format_version == 1 and .palette_id == "vga16" and (.content_hash | test("^[0-9a-f]{64}$"))'
+          curl --fail --silent "http://127.0.0.1:18080/p/${postcard_id}.png" \
+            | head -c 8 | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$'
+          child_payload="$(jq -nc --argjson parent "${postcard_id}" '{pixels: [range(0; 256) | (. + 1) % 16], alias: "REMIX", parent_id: $parent}')"
+          child_id="$(curl --fail --silent --show-error \
+            -H 'Content-Type: application/json' \
+            --data "${child_payload}" \
+            http://127.0.0.1:18080/postcard | jq -r '.id')"
+          test "${child_id}" -gt "${postcard_id}"
+          curl --fail --silent "http://127.0.0.1:18080/p/${child_id}.json" \
+            | jq -e --argjson parent "${postcard_id}" '.parent_id == $parent'
           hide_log="$(mktemp)"
           docker exec pixelgrama-smoke /usr/local/bin/pixelgrama admin hide \
             --id "${postcard_id}" --reason "Image moderation smoke" 2>"${hide_log}" \
