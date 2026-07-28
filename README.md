@@ -20,7 +20,8 @@ The HTTP surface is intentionally small:
 | --- | --- | --- |
 | `GET` | `/` | Permanent redirect to `/wall`. |
 | `POST` | `/postcard` | Validate and publish one JSON postcard. |
-| `GET` | `/wall` | Embedded HTML wall, or bounded JSON with `Accept: application/json` / `?format=json`. |
+| `GET` | `/wall` | Embedded HTML wall, or bounded cursor JSON with `Accept: application/json` / `?format=json`. |
+| `GET` | `/random` | Redirect to one randomly selected public postcard without ranking. |
 | `GET` | `/p/{id}` | Shareable page for one public postcard. |
 | `GET` | `/p/{id}.json` | Canonical postcard JSON including content identity and parent relation. |
 | `GET` | `/p/{id}.png` | Deterministic 256×256 PNG using integer 16× scaling and no smoothing. |
@@ -28,7 +29,7 @@ The HTTP surface is intentionally small:
 | `GET` | `/readyz` | SQLite and schema readiness. |
 | `GET` | `/version` | Deployed commit, repository and pull-request provenance. |
 
-Wall pagination defaults to 24 entries, caps at 64 and caps the page number at 1000. Results are newest first. Pixel-identical consecutive visible submissions are rejected even when their aliases differ. Administratively hidden postcards are excluded from the wall and do not affect public deduplication.
+Wall pagination defaults to 24 entries and caps at 64. JSON responses are newest first and expose `next_before_id`; the next request supplies that value as `before_id`. The cursor is the oldest returned visible ID, so publications created after the first page cannot duplicate or displace older entries on later pages. The legacy `page` parameter is rejected. `/random` selects only visible postcards with no score, ranking or popularity signal. Pixel-identical consecutive visible submissions are rejected even when their aliases differ. Administratively hidden postcards are excluded from the wall and do not affect public deduplication.
 
 ## Architecture and security
 
@@ -58,7 +59,7 @@ Full local gates:
 
 ```sh
 go mod verify
-node --test internal/app/web/editor_test.js
+node --test internal/app/web/editor_test.js internal/app/web/remix_test.js internal/app/web/exploration_test.js
 test -z "$(gofmt -l .)"
 go test -race ./...
 go vet ./...
@@ -70,7 +71,7 @@ git diff --check
 
 `Dockerfile` is multi-stage: Go compiles a static CGO-disabled binary and the final Alpine image runs it as a non-root user. GitHub Actions performs tests, race detection, vet and static build on pull requests. Only a merge to `main` or a version tag publishes images to GHCR.
 
-The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, shareable HTML/JSON/PNG, a validated remix parent, a verified SQLite backup and the administrative hide/restore flow.
+The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, stable cursor pagination during a concurrent publication, random public exploration, shareable HTML/JSON/PNG, a validated remix parent, a verified SQLite backup and the administrative hide/restore flow.
 
 `docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built public `ghcr.io/charle-z/pixelgrama:latest` image instead of compiling on the CPU-limited VPS. Deploy only after the image workflow for the merged commit is available, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
 

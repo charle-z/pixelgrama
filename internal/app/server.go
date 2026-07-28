@@ -22,7 +22,6 @@ import (
 const (
 	DefaultWallLimit = 24
 	MaxWallLimit     = 64
-	MaxWallPage      = 1000
 	defaultBodyLimit = 4096
 )
 
@@ -58,9 +57,9 @@ type errorResponse struct {
 }
 
 type wallResponse struct {
-	Postcards []store.Postcard `json:"postcards"`
-	Page      int              `json:"page"`
-	Limit     int              `json:"limit"`
+	Postcards    []store.Postcard `json:"postcards"`
+	Limit        int              `json:"limit"`
+	NextBeforeID *int64           `json:"next_before_id,omitempty"`
 }
 
 func New(config Config) (http.Handler, error) {
@@ -126,6 +125,13 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleWall(w, r)
+	case "/random":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is allowed")
+			return
+		}
+		s.handleRandom(w, r)
 	case "/readyz":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
@@ -239,9 +245,8 @@ func (s *server) handleWall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, err := positiveQueryInt(r, "page", 1)
-	if err != nil || page > MaxWallPage {
-		s.writeError(w, http.StatusBadRequest, "invalid_page", fmt.Sprintf("page must be between 1 and %d", MaxWallPage))
+	if _, exists := r.URL.Query()["page"]; exists {
+		s.writeError(w, http.StatusBadRequest, "invalid_page", "page is no longer supported; use before_id")
 		return
 	}
 	limit, err := positiveQueryInt(r, "limit", DefaultWallLimit)
@@ -252,13 +257,17 @@ func (s *server) handleWall(w http.ResponseWriter, r *http.Request) {
 	if limit > MaxWallLimit {
 		limit = MaxWallLimit
 	}
-	offset := (page - 1) * limit
-	items, err := s.store.List(r.Context(), limit, offset)
+	beforeID, err := optionalPositiveQueryInt64(r, "before_id")
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid_before_id", "before_id must be a positive integer")
+		return
+	}
+	items, nextBeforeID, err := s.store.ListBefore(r.Context(), limit, beforeID)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "storage_error", "wall could not be loaded")
 		return
 	}
-	s.writeJSON(w, http.StatusOK, wallResponse{Postcards: items, Page: page, Limit: limit})
+	s.writeJSON(w, http.StatusOK, wallResponse{Postcards: items, Limit: limit, NextBeforeID: nextBeforeID})
 }
 
 func decodePixels(raw json.RawMessage) (core.Pixels, error) {
@@ -309,6 +318,18 @@ func positiveQueryInt(r *http.Request, name string, fallback int) (int, error) {
 		return 0, errors.New("value must be positive")
 	}
 	return parsed, nil
+}
+
+func optionalPositiveQueryInt64(r *http.Request, name string) (*int64, error) {
+	value := r.URL.Query().Get(name)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 1 {
+		return nil, errors.New("value must be positive")
+	}
+	return &parsed, nil
 }
 
 func (s *server) clientIP(r *http.Request) string {

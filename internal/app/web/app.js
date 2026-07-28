@@ -8,7 +8,9 @@
     EditorModel,
     validateDraft,
     validPixels,
-    formatPostcardDate
+    formatPostcardDate,
+    wallRequestPath,
+    normalizeWallPage
   } = globalThis.PixelgramaEditor;
   const palette = [
     "#000000", "#0000AA", "#00AA00", "#00AAAA",
@@ -30,7 +32,8 @@
   const undoNode = document.getElementById("undo");
   const redoNode = document.getElementById("redo");
   const toolNodes = Array.from(document.querySelectorAll("[data-tool]"));
-  let page = 1;
+  let nextBeforeID = null;
+  const renderedPostcardIDs = new Set();
   let drawing = false;
   let publishing = false;
   let currentStatus = "ready";
@@ -220,9 +223,11 @@
   }
 
   function drawPostcard(item) {
-    if (!item || !validPixels(item.pixels)) {
-      return;
+    const id = item && Number(item.id);
+    if (!item || !validPixels(item.pixels) || !Number.isSafeInteger(id) || id < 1 || renderedPostcardIDs.has(id)) {
+      return false;
     }
+    renderedPostcardIDs.add(id);
     const article = document.createElement("article");
     article.className = "postcard";
     const canvas = document.createElement("canvas");
@@ -242,32 +247,37 @@
     meta.textContent = formatPostcardDate(item.created_at, language);
     const share = document.createElement("a");
     share.className = "share-link";
-    share.href = "/p/" + item.id;
+    share.href = "/p/" + id;
     share.dataset.es = "ABRIR / REMIX";
     share.dataset.en = "OPEN / REMIX";
     share.textContent = share.dataset[language];
     article.append(canvas, alias, meta, share);
     wallNode.append(article);
+    return true;
   }
 
   async function loadWall(reset) {
     if (reset) {
-      page = 1;
+      nextBeforeID = null;
+      renderedPostcardIDs.clear();
       wallNode.replaceChildren();
     }
     setWallStatus("loading");
     try {
-      const response = await fetch("/wall?format=json&page=" + page + "&limit=24", {
+      const response = await fetch(wallRequestPath(nextBeforeID, 24), {
         headers: { Accept: "application/json" }
       });
       if (!response.ok) {
         throw new Error("wall");
       }
-      const payload = await response.json();
-      const postcards = Array.isArray(payload.postcards) ? payload.postcards : [];
-      postcards.forEach(drawPostcard);
-      setWallStatus(postcards.length === 0 && page === 1 ? "empty" : "loaded");
-      loadMoreNode.hidden = postcards.length < 24;
+      const payload = normalizeWallPage(await response.json());
+      if (payload === null) {
+        throw new Error("wall payload");
+      }
+      payload.postcards.forEach(drawPostcard);
+      nextBeforeID = payload.nextBeforeID;
+      setWallStatus(renderedPostcardIDs.size === 0 ? "empty" : "loaded");
+      loadMoreNode.hidden = nextBeforeID === null;
     } catch (error) {
       setWallStatus("wallError");
       loadMoreNode.hidden = true;
@@ -492,8 +502,9 @@
     await loadWall(true);
   });
   loadMoreNode.addEventListener("click", async () => {
-    page += 1;
-    await loadWall(false);
+    if (nextBeforeID !== null) {
+      await loadWall(false);
+    }
   });
 
   buildPalette();
