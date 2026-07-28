@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 var (
 	ErrFutureSchema = errors.New("database schema is newer than this binary")
@@ -26,6 +26,21 @@ CREATE TABLE IF NOT EXISTS postcards (
 );
 CREATE INDEX IF NOT EXISTS postcards_created_at_idx ON postcards(id DESC);`
 
+const schemaV2 = `
+ALTER TABLE postcards ADD COLUMN moderation_status TEXT NOT NULL DEFAULT 'visible'
+    CHECK(moderation_status IN ('visible', 'hidden'));
+ALTER TABLE postcards ADD COLUMN moderated_at TEXT NULL;
+ALTER TABLE postcards ADD COLUMN moderation_reason TEXT NULL CHECK(moderation_reason IS NULL OR length(moderation_reason) BETWEEN 1 AND 256);
+CREATE INDEX postcards_public_idx ON postcards(moderation_status, id DESC);
+CREATE TABLE moderation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    postcard_id INTEGER NOT NULL REFERENCES postcards(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK(action IN ('hide', 'restore')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 256),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX moderation_events_postcard_idx ON moderation_events(postcard_id, id DESC);`
+
 func (s *Store) migrate(ctx context.Context) error {
 	version, err := s.SchemaVersion(ctx)
 	if err != nil {
@@ -34,23 +49,34 @@ func (s *Store) migrate(ctx context.Context) error {
 	if version > CurrentSchemaVersion {
 		return fmt.Errorf("%w: database=%d supported=%d", ErrFutureSchema, version, CurrentSchemaVersion)
 	}
-	if version == CurrentSchemaVersion {
-		return nil
-	}
+	for version < CurrentSchemaVersion {
+		nextVersion := version + 1
+		var schema string
+		switch nextVersion {
+		case 1:
+			schema = schemaV1
+		case 2:
+			schema = schemaV2
+		default:
+			return fmt.Errorf("missing sqlite migration for version %d", nextVersion)
+		}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin sqlite migration: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, schemaV1); err != nil {
-		return fmt.Errorf("apply sqlite schema v1: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 1"); err != nil {
-		return fmt.Errorf("set sqlite schema version: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit sqlite migration: %w", err)
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin sqlite migration %d: %w", nextVersion, err)
+		}
+		if _, err := tx.ExecContext(ctx, schema); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply sqlite schema v%d: %w", nextVersion, err)
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", nextVersion)); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set sqlite schema version %d: %w", nextVersion, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit sqlite migration %d: %w", nextVersion, err)
+		}
+		version = nextVersion
 	}
 	return nil
 }
@@ -120,6 +146,9 @@ func verifyBackup(ctx context.Context, path string) error {
 	var count int
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM postcards").Scan(&count); err != nil {
 		return fmt.Errorf("read backup postcards: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM moderation_events").Scan(&count); err != nil {
+		return fmt.Errorf("read backup moderation events: %w", err)
 	}
 	return nil
 }

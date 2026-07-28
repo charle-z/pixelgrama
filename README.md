@@ -24,7 +24,7 @@ The HTTP surface is intentionally small:
 | `GET` | `/readyz` | SQLite and schema readiness. |
 | `GET` | `/version` | Deployed commit, repository and pull-request provenance. |
 
-Wall pagination defaults to 24 entries, caps at 64 and caps the page number at 1000. Results are newest first. Pixel-identical consecutive submissions are rejected even when their aliases differ.
+Wall pagination defaults to 24 entries, caps at 64 and caps the page number at 1000. Results are newest first. Pixel-identical consecutive visible submissions are rejected even when their aliases differ. Administratively hidden postcards are excluded from the wall and do not affect public deduplication.
 
 ## Architecture and security
 
@@ -61,13 +61,25 @@ git diff --check
 
 `Dockerfile` is multi-stage: Go compiles a static CGO-disabled binary and the final Alpine image runs it as a non-root user. GitHub Actions performs tests, race detection, vet and static build on pull requests. Only a merge to `main` or a version tag publishes images to GHCR.
 
-The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version` and a verified SQLite backup.
+The image workflow injects the exact commit, repository URL and pull request associated with that commit, publishes both `latest` and `sha-<full-commit>` tags, and smoke-tests `/healthz`, `/readyz`, `/version`, a verified SQLite backup and the administrative hide/restore flow.
 
 `docker-compose.yml` has no `build` section. Coolify therefore pulls the CI-built public `ghcr.io/charle-z/pixelgrama:latest` image instead of compiling on the CPU-limited VPS. Deploy only after the image workflow for the merged commit is available, persist the named `/data` volume, expose port 8080 and use `/healthz` as the health check. Credentials, when required by the registry or platform, belong only in Coolify.
 
+## Administrative moderation
+
+Moderation is available only through the existing binary; there is no administrative HTTP endpoint or web panel. Commands return JSON on stdout:
+
+```sh
+pixelgrama admin list --status hidden --limit 100
+pixelgrama admin hide --id 42 --reason "policy review"
+pixelgrama admin restore --id 42 --reason "review completed"
+```
+
+`list` accepts `hidden`, `visible` or `all` and returns no pixel payloads. Reasons are required for state changes, limited to 256 Unicode characters and may not contain control characters. Each hide or restore is transactional: the current state, timestamp and reason are updated together with a persistent event. Operational logs record only action, postcard ID, resulting state and timestamp; they do not print the administrative reason.
+
 ## SQLite operations
 
-The current schema version is `1`. A legacy database with `PRAGMA user_version = 0` is migrated transactionally without recreating or deleting existing postcards. A database with a version greater than the supported version is rejected before serving traffic.
+The current schema version is `2`. Databases at versions `0` or `1` are migrated sequentially and transactionally without recreating or deleting existing postcards. Version 2 adds moderation state and a persistent moderation event history; existing postcards become visible. A database with a version greater than the supported version is rejected before serving traffic.
 
 `/healthz` remains a liveness endpoint. `/readyz` executes a real SQLite ping and verifies that `PRAGMA user_version` matches the binary.
 

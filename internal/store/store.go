@@ -68,7 +68,7 @@ func (s *Store) Insert(ctx context.Context, pixels core.Pixels, alias *string, c
 	defer tx.Rollback()
 
 	var latest []byte
-	err = tx.QueryRowContext(ctx, "SELECT pixels FROM postcards ORDER BY id DESC LIMIT 1").Scan(&latest)
+	err = tx.QueryRowContext(ctx, "SELECT pixels FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT 1").Scan(&latest)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return Postcard{}, fmt.Errorf("read latest postcard: %w", err)
 	}
@@ -99,7 +99,7 @@ func (s *Store) List(ctx context.Context, limit, offset int) ([]Postcard, error)
 		return nil, errors.New("limit must be positive and offset non-negative")
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, pixels, alias, deployed_commit, created_at FROM postcards ORDER BY id DESC LIMIT ? OFFSET ?",
+		"SELECT id, pixels, alias, deployed_commit, created_at FROM postcards WHERE moderation_status = 'visible' ORDER BY id DESC LIMIT ? OFFSET ?",
 		limit, offset,
 	)
 	if err != nil {

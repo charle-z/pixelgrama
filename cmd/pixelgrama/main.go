@@ -30,11 +30,17 @@ func main() {
 		log.Fatalf("prepare runtime: %v", err)
 	}
 	if len(os.Args) > 1 {
-		if os.Args[1] != "backup" {
+		switch os.Args[1] {
+		case "backup":
+			if err := runBackup(context.Background(), config, os.Args[2:], os.Stdout); err != nil {
+				log.Fatalf("backup: %v", err)
+			}
+		case "admin":
+			if err := runAdmin(context.Background(), config, os.Args[2:], os.Stdout, os.Stderr, time.Now); err != nil {
+				log.Fatalf("admin: %v", err)
+			}
+		default:
 			log.Fatalf("unknown command %q", os.Args[1])
-		}
-		if err := runBackup(context.Background(), config, os.Args[2:], os.Stdout); err != nil {
-			log.Fatalf("backup: %v", err)
 		}
 		return
 	}

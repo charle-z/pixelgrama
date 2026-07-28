@@ -65,6 +65,30 @@ jobs:
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/readyz \
             | jq -e '.status == "ready"'
           docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama backup --output /data/ci-backup.db
+          payload="$(jq -nc '{pixels: [range(0; 256) | . % 16], alias: "CI"}')"
+          postcard_id="$(docker compose exec --no-TTY pixelgrama wget -q -O - \
+            --header 'Content-Type: application/json' \
+            --post-data "${payload}" \
+            http://127.0.0.1:8080/postcard | jq -r '.id')"
+          test "${postcard_id}" -gt 0
+          hide_log="$(mktemp)"
+          docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama admin hide \
+            --id "${postcard_id}" --reason "CI moderation smoke" 2>"${hide_log}" \
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .status == "hidden"'
+          grep -q 'action=hide' "${hide_log}"
+          ! grep -q 'CI moderation smoke' "${hide_log}"
+          docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama admin list --status hidden --limit 10 \
+            | jq -e --argjson id "${postcard_id}" 'any(.[]; .id == $id and .status == "hidden" and .reason == "CI moderation smoke")'
+          docker compose exec --no-TTY pixelgrama wget -q -O - 'http://127.0.0.1:8080/wall?format=json' \
+            | jq -e --argjson id "${postcard_id}" 'all(.postcards[]; .id != $id)'
+          restore_log="$(mktemp)"
+          docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama admin restore \
+            --id "${postcard_id}" --reason "CI restore smoke" 2>"${restore_log}" \
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .status == "visible"'
+          grep -q 'action=restore' "${restore_log}"
+          ! grep -q 'CI restore smoke' "${restore_log}"
+          docker compose exec --no-TTY pixelgrama wget -q -O - 'http://127.0.0.1:8080/wall?format=json' \
+            | jq -e --argjson id "${postcard_id}" 'any(.postcards[]; .id == $id)'
           docker compose exec --no-TTY pixelgrama cat /proc/1/status \
             | awk '$1 == "Uid:" { found=1; exit !($2 == 10001 && $3 == 10001 && $4 == 10001 && $5 == 10001) } END { if (!found) exit 1 }'
           docker compose exec --no-TTY pixelgrama cat /proc/1/status \

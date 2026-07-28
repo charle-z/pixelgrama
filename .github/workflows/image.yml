@@ -66,4 +66,25 @@ jobs:
           curl --fail --silent http://127.0.0.1:18080/healthz | jq -e '.status == "ok"'
           curl --fail --silent http://127.0.0.1:18080/readyz | jq -e '.status == "ready"'
           docker exec pixelgrama-smoke /usr/local/bin/pixelgrama backup --output /data/image-smoke-backup.db
+          payload="$(jq -nc '{pixels: [range(0; 256) | . % 16], alias: "IMAGE"}')"
+          postcard_id="$(curl --fail --silent --show-error \
+            -H 'Content-Type: application/json' \
+            --data "${payload}" \
+            http://127.0.0.1:18080/postcard | jq -r '.id')"
+          hide_log="$(mktemp)"
+          docker exec pixelgrama-smoke /usr/local/bin/pixelgrama admin hide \
+            --id "${postcard_id}" --reason "Image moderation smoke" 2>"${hide_log}" \
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .status == "hidden"'
+          grep -q 'action=hide' "${hide_log}"
+          ! grep -q 'Image moderation smoke' "${hide_log}"
+          curl --fail --silent 'http://127.0.0.1:18080/wall?format=json' \
+            | jq -e --argjson id "${postcard_id}" 'all(.postcards[]; .id != $id)'
+          restore_log="$(mktemp)"
+          docker exec pixelgrama-smoke /usr/local/bin/pixelgrama admin restore \
+            --id "${postcard_id}" --reason "Image restore smoke" 2>"${restore_log}" \
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .status == "visible"'
+          grep -q 'action=restore' "${restore_log}"
+          ! grep -q 'Image restore smoke' "${restore_log}"
+          curl --fail --silent 'http://127.0.0.1:18080/wall?format=json' \
+            | jq -e --argjson id "${postcard_id}" 'any(.postcards[]; .id == $id)'
           curl --fail --silent http://127.0.0.1:18080/version | jq -e --arg sha "${SHA}" '.commit == $sha'
