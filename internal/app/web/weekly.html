@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixelgrama {{.WeekKey}}</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<header class="masthead">
+<div>
+<p class="prompt">C:\PUBLIC\PIXELGRAMA\WEEK&gt;</p>
+<h1>PIXELGRAMA</h1>
+<p>MOSAICO SEMANAL · WEEKLY MOSAIC</p>
+</div>
+<nav aria-label="Navigation">
+<a class="button-link" href="/wall">MURO / WALL</a>
+</nav>
+</header>
+<main>
+<section id="weekly-mosaic" class="weekly-panel" aria-labelledby="weekly-title" data-week="{{.WeekKey}}">
+<div class="section-bar">
+<h2 id="weekly-title">{{.WeekKey}}</h2>
+<span>{{.StartDate}} — {{.EndDate}} UTC</span>
+</div>
+<div class="weekly-layout">
+<a href="/week.png" aria-label="PNG del mosaico semanal">
+<img class="weekly-image" src="/week.png" width="512" height="512" alt="Mosaico semanal de Pixelgrama {{.WeekKey}}">
+</a>
+<div class="weekly-details">
+<p><strong>POSTALES / POSTCARDS:</strong> {{.Selected}} / {{.Total}}</p>
+<p>Se muestran hasta 64 postales públicas recientes de la semana UTC, en orden cronológico.</p>
+<p>Up to 64 recent public postcards from the UTC week are shown in chronological order.</p>
+<a class="button-link" href="/week.png">PNG 512×512</a>
+{{if .Links}}
+<ol class="weekly-links">
+{{range .Links}}<li><a href="/p/{{.ID}}">{{.Label}}</a></li>{{end}}
+</ol>
+{{else}}
+<p>NO HAY POSTALES ESTA SEMANA · NO POSTCARDS THIS WEEK</p>
+{{end}}
+</div>
+</div>
+</section>
+</main>
+<footer>
+<span>VERSIÓN / VERSION</span>
+<code>{{.Commit}}</code>
+<a href="{{.RepoURL}}" rel="noreferrer">REPOSITORY</a>
+<a href="{{.PRURL}}" rel="noreferrer">PULL REQUEST</a>
+</footer>
+</body>
+</html>
