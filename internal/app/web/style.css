@@ -113,6 +113,31 @@ section {
   font-size: 1rem;
 }
 
+.challenge-panel {
+  border-color: #55FFFF;
+}
+
+.challenge-panel .section-bar {
+  background: #AA00AA;
+}
+
+.challenge-content {
+  padding: 1rem;
+}
+
+.challenge-label {
+  margin: 0 0 0.5rem;
+  color: #FFFF55;
+  font-weight: 700;
+}
+
+#challenge-prompt {
+  margin: 0;
+  color: #55FF55;
+  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  font-weight: 700;
+}
+
 .editor-layout {
   display: grid;
   grid-template-columns: minmax(280px, 540px) minmax(260px, 1fr);

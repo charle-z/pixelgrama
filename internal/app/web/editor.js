@@ -159,6 +159,46 @@
     };
   }
 
+  function plainChallengeText(value) {
+    return typeof value === "string"
+      && value.length > 0
+      && Array.from(value).length <= 96
+      && !/[\u0000-\u001f\u007f<>]/.test(value);
+  }
+
+  function normalizeDailyChallenge(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || value.catalog_version !== 1) {
+      return null;
+    }
+    if (typeof value.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) {
+      return null;
+    }
+    const date = new Date(value.date + "T00:00:00Z");
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value.date) {
+      return null;
+    }
+    if (typeof value.slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.slug)) {
+      return null;
+    }
+    if (!plainChallengeText(value.prompt_es) || !plainChallengeText(value.prompt_en)) {
+      return null;
+    }
+    return {
+      catalogVersion: 1,
+      date: value.date,
+      slug: value.slug,
+      promptES: value.prompt_es,
+      promptEN: value.prompt_en
+    };
+  }
+
+  function dailyChallengePrompt(value, language) {
+    if (!value) {
+      return "";
+    }
+    return language === "en" ? value.promptEN : value.promptES;
+  }
+
   function validateDraft(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return null;
@@ -390,6 +430,8 @@
     validCursor,
     wallRequestPath,
     normalizeWallPage,
+    normalizeDailyChallenge,
+    dailyChallengePrompt,
     linePoints,
     floodFill,
     flippedHorizontally,

@@ -19,7 +19,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go mod verify
-      - run: node --test internal/app/web/editor_test.js internal/app/web/remix_test.js internal/app/web/exploration_test.js
+      - run: node --test internal/app/web/editor_test.js internal/app/web/remix_test.js internal/app/web/exploration_test.js internal/app/web/challenge_test.js
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
       - run: go vet ./...
@@ -65,6 +65,12 @@ jobs:
           test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps --quiet pixelgrama)")" = healthy
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/readyz \
             | jq -e '.status == "ready"'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/challenge \
+            | jq -e '.catalog_version == 1 and (.date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and (.slug | test("^[a-z0-9]+(-[a-z0-9]+)*$")) and (.prompt_es | length > 0) and (.prompt_en | length > 0)'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
+            | grep -q 'id="daily-challenge"'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
+            | grep -q 'fetch("/challenge"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'id="tool-pencil"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \

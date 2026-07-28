@@ -10,7 +10,9 @@
     validPixels,
     formatPostcardDate,
     wallRequestPath,
-    normalizeWallPage
+    normalizeWallPage,
+    normalizeDailyChallenge,
+    dailyChallengePrompt
   } = globalThis.PixelgramaEditor;
   const palette = [
     "#000000", "#0000AA", "#00AA00", "#00AAAA",
@@ -27,6 +29,8 @@
   const statusNode = document.getElementById("status");
   const wallNode = document.getElementById("wall");
   const wallStateNode = document.getElementById("wall-state");
+  const challengeDateNode = document.getElementById("challenge-date");
+  const challengePromptNode = document.getElementById("challenge-prompt");
   const loadMoreNode = document.getElementById("load-more");
   const publishNode = document.getElementById("publish");
   const undoNode = document.getElementById("undo");
@@ -39,6 +43,7 @@
   let currentStatus = "ready";
   let currentWallStatus = "loading";
   let remixParentID = null;
+  let dailyChallenge;
 
   const messages = {
     ready: { es: "LISTO", en: "READY" },
@@ -57,7 +62,8 @@
     wallError: { es: "ERROR AL CARGAR EL MURO", en: "WALL LOAD ERROR" },
     empty: { es: "AÚN NO HAY POSTALES", en: "NO POSTCARDS YET" },
     loaded: { es: "MURO ACTUALIZADO", en: "WALL UPDATED" },
-    loading: { es: "CARGANDO", en: "LOADING" }
+    loading: { es: "CARGANDO", en: "LOADING" },
+    challengeUnavailable: { es: "RETO NO DISPONIBLE", en: "CHALLENGE UNAVAILABLE" }
   };
 
   function storageGet(key) {
@@ -142,6 +148,7 @@
     document.getElementById("lang-en").setAttribute("aria-pressed", String(language === "en"));
     statusNode.textContent = translated(currentStatus);
     wallStateNode.textContent = translated(currentWallStatus);
+    renderDailyChallenge();
   }
 
   function persistDraft() {
@@ -254,6 +261,38 @@
     article.append(canvas, alias, meta, share);
     wallNode.append(article);
     return true;
+  }
+
+  function renderDailyChallenge() {
+    if (dailyChallenge === undefined) {
+      challengeDateNode.textContent = "----";
+      challengePromptNode.textContent = challengePromptNode.dataset[language];
+      return;
+    }
+    if (dailyChallenge === null) {
+      challengeDateNode.textContent = "----";
+      challengePromptNode.textContent = translated("challengeUnavailable");
+      return;
+    }
+    challengeDateNode.textContent = dailyChallenge.date + " UTC";
+    challengePromptNode.textContent = dailyChallengePrompt(dailyChallenge, language);
+  }
+
+  async function loadDailyChallenge() {
+    try {
+      const response = await fetch("/challenge", { headers: { Accept: "application/json" } });
+      if (!response.ok) {
+        throw new Error("challenge");
+      }
+      const value = normalizeDailyChallenge(await response.json());
+      if (value === null) {
+        throw new Error("challenge payload");
+      }
+      dailyChallenge = value;
+    } catch (error) {
+      dailyChallenge = null;
+    }
+    renderDailyChallenge();
   }
 
   async function loadWall(reset) {
@@ -512,5 +551,6 @@
   drawEditor();
   updateControls();
   loadRemix();
+  loadDailyChallenge();
   loadWall(true);
 })();
