@@ -1,12 +1,23 @@
 "use strict";
 
 (() => {
+  const {
+    WIDTH,
+    HEIGHT,
+    DRAFT_VERSION,
+    EditorModel,
+    validateDraft,
+    validPixels,
+    formatPostcardDate
+  } = globalThis.PixelgramaEditor;
   const palette = [
     "#000000", "#0000AA", "#00AA00", "#00AAAA",
     "#AA0000", "#AA00AA", "#AA5500", "#AAAAAA",
     "#555555", "#5555FF", "#55FF55", "#55FFFF",
     "#FF5555", "#FF55FF", "#FFFF55", "#FFFFFF"
   ];
+  const DRAFT_KEY = "pixelgrama:draft";
+  const LANGUAGE_KEY = "pixelgrama:language";
   const editor = document.getElementById("editor");
   const context = editor.getContext("2d", { alpha: false });
   const paletteNode = document.getElementById("palette");
@@ -15,51 +26,143 @@
   const wallNode = document.getElementById("wall");
   const wallStateNode = document.getElementById("wall-state");
   const loadMoreNode = document.getElementById("load-more");
-  const pixels = new Array(256).fill(0);
-  let selected = 15;
-  let drawing = false;
+  const publishNode = document.getElementById("publish");
+  const undoNode = document.getElementById("undo");
+  const redoNode = document.getElementById("redo");
+  const toolNodes = Array.from(document.querySelectorAll("[data-tool]"));
   let page = 1;
-  let language = "es";
+  let drawing = false;
+  let publishing = false;
+  let currentStatus = "ready";
+  let currentWallStatus = "loading";
 
   const messages = {
     ready: { es: "LISTO", en: "READY" },
+    draftRestored: { es: "BORRADOR RESTAURADO", en: "DRAFT RESTORED" },
+    draftDiscarded: { es: "BORRADOR INVÁLIDO DESCARTADO", en: "INVALID DRAFT DISCARDED" },
     publishing: { es: "PUBLICANDO...", en: "PUBLISHING..." },
     published: { es: "POSTAL PUBLICADA", en: "POSTCARD PUBLISHED" },
     invalidAlias: { es: "ALIAS INVÁLIDO", en: "INVALID ALIAS" },
+    publishError: { es: "NO SE PUDO PUBLICAR", en: "POSTCARD COULD NOT BE PUBLISHED" },
+    duplicate: { es: "POSTAL DUPLICADA", en: "DUPLICATE POSTCARD" },
+    rateLimited: { es: "LÍMITE DE PUBLICACIÓN ALCANZADO", en: "PUBLISH RATE LIMIT REACHED" },
+    networkError: { es: "ERROR DE RED", en: "NETWORK ERROR" },
     wallError: { es: "ERROR AL CARGAR EL MURO", en: "WALL LOAD ERROR" },
     empty: { es: "AÚN NO HAY POSTALES", en: "NO POSTCARDS YET" },
-    loaded: { es: "MURO ACTUALIZADO", en: "WALL UPDATED" }
+    loaded: { es: "MURO ACTUALIZADO", en: "WALL UPDATED" },
+    loading: { es: "CARGANDO", en: "LOADING" }
   };
+
+  function storageGet(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      return;
+    }
+  }
+
+  function storageRemove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      return;
+    }
+  }
+
+  function loadDraft() {
+    const raw = storageGet(DRAFT_KEY);
+    if (raw === null) {
+      return { draft: null, invalid: false };
+    }
+    try {
+      const draft = validateDraft(JSON.parse(raw));
+      if (draft !== null) {
+        return { draft, invalid: false };
+      }
+    } catch (error) {
+      storageRemove(DRAFT_KEY);
+      return { draft: null, invalid: true };
+    }
+    storageRemove(DRAFT_KEY);
+    return { draft: null, invalid: true };
+  }
+
+  const savedDraft = loadDraft();
+  let model = new EditorModel(savedDraft.draft || {});
+  if (savedDraft.draft !== null) {
+    aliasNode.value = savedDraft.draft.alias;
+    currentStatus = "draftRestored";
+  } else if (savedDraft.invalid) {
+    currentStatus = "draftDiscarded";
+  }
+  const storedLanguage = storageGet(LANGUAGE_KEY);
+  let language = storedLanguage === "en" ? "en" : "es";
 
   function translated(key) {
     return messages[key][language];
   }
 
   function setStatus(key) {
+    currentStatus = key;
     statusNode.textContent = translated(key);
   }
 
-  function applyLanguage(nextLanguage) {
-    language = nextLanguage;
+  function setWallStatus(key) {
+    currentWallStatus = key;
+    wallStateNode.textContent = translated(key);
+  }
+
+  function applyLanguage(nextLanguage, persist) {
+    language = nextLanguage === "en" ? "en" : "es";
+    if (persist) {
+      storageSet(LANGUAGE_KEY, language);
+    }
     document.documentElement.lang = language;
     document.querySelectorAll("[data-es][data-en]").forEach((node) => {
       node.textContent = node.dataset[language];
     });
+    editor.setAttribute("aria-label", language === "es" ? editor.dataset.labelEs : editor.dataset.labelEn);
     document.getElementById("lang-es").setAttribute("aria-pressed", String(language === "es"));
     document.getElementById("lang-en").setAttribute("aria-pressed", String(language === "en"));
+    statusNode.textContent = translated(currentStatus);
+    wallStateNode.textContent = translated(currentWallStatus);
+  }
+
+  function persistDraft() {
+    storageSet(DRAFT_KEY, JSON.stringify(model.draft(aliasNode.value)));
+  }
+
+  function updateControls() {
+    paletteNode.querySelectorAll("button").forEach((item, index) => {
+      item.dataset.selected = String(index === model.selected);
+    });
+    toolNodes.forEach((node) => {
+      node.setAttribute("aria-pressed", String(node.dataset.tool === model.tool));
+    });
+    undoNode.disabled = !model.canUndo;
+    redoNode.disabled = !model.canRedo;
+    publishNode.disabled = publishing;
   }
 
   function drawEditor() {
-    const cell = editor.width / 16;
-    for (let index = 0; index < pixels.length; index += 1) {
-      const x = (index % 16) * cell;
-      const y = Math.floor(index / 16) * cell;
-      context.fillStyle = palette[pixels[index]];
+    const cell = editor.width / WIDTH;
+    for (let index = 0; index < model.pixels.length; index += 1) {
+      const x = (index % WIDTH) * cell;
+      const y = Math.floor(index / WIDTH) * cell;
+      context.fillStyle = palette[model.pixels[index]];
       context.fillRect(x, y, cell, cell);
     }
     context.strokeStyle = "#555555";
     context.lineWidth = 1;
-    for (let coordinate = 0; coordinate <= 16; coordinate += 1) {
+    for (let coordinate = 0; coordinate <= WIDTH; coordinate += 1) {
       const position = coordinate * cell + 0.5;
       context.beginPath();
       context.moveTo(position, 0);
@@ -70,17 +173,29 @@
       context.lineTo(editor.width, position);
       context.stroke();
     }
+    if (document.activeElement === editor) {
+      context.strokeStyle = "#FFFF55";
+      context.lineWidth = 3;
+      context.strokeRect(model.cursor.x * cell + 2, model.cursor.y * cell + 2, cell - 4, cell - 4);
+    }
   }
 
-  function paint(event) {
-    const bounds = editor.getBoundingClientRect();
-    const x = Math.floor(((event.clientX - bounds.left) / bounds.width) * 16);
-    const y = Math.floor(((event.clientY - bounds.top) / bounds.height) * 16);
-    if (x < 0 || x > 15 || y < 0 || y > 15) {
-      return;
-    }
-    pixels[y * 16 + x] = selected;
+  function editorChanged(save) {
     drawEditor();
+    updateControls();
+    if (save) {
+      persistDraft();
+    }
+  }
+
+  function pointFromEvent(event) {
+    const bounds = editor.getBoundingClientRect();
+    const x = Math.floor(((event.clientX - bounds.left) / bounds.width) * WIDTH);
+    const y = Math.floor(((event.clientY - bounds.top) / bounds.height) * HEIGHT);
+    if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) {
+      return null;
+    }
+    return { x, y };
   }
 
   function buildPalette() {
@@ -88,20 +203,15 @@
       const button = document.createElement("button");
       button.type = "button";
       button.style.backgroundColor = color;
-      button.dataset.selected = String(index === selected);
-      button.setAttribute("aria-label", `VGA ${index}: ${color}`);
+      button.dataset.selected = String(index === model.selected);
+      button.setAttribute("aria-label", "VGA " + index + ": " + color);
       button.addEventListener("click", () => {
-        selected = index;
-        paletteNode.querySelectorAll("button").forEach((item, itemIndex) => {
-          item.dataset.selected = String(itemIndex === selected);
-        });
+        model.setSelected(index);
+        updateControls();
+        persistDraft();
       });
       paletteNode.append(button);
     });
-  }
-
-  function validPixels(value) {
-    return Array.isArray(value) && value.length === 256 && value.every((item) => Number.isInteger(item) && item >= 0 && item <= 15);
   }
 
   function drawPostcard(item) {
@@ -125,8 +235,7 @@
     const meta = document.createElement("p");
     meta.className = "meta";
     const commit = typeof item.commit === "string" ? item.commit.slice(0, 12) : "unknown";
-    const created = typeof item.created_at === "string" ? item.created_at : "";
-    meta.textContent = `#${Number(item.id) || 0} · ${commit} · ${created}`;
+    meta.textContent = "#" + (Number(item.id) || 0) + " · " + commit + " · " + formatPostcardDate(item.created_at, language);
     article.append(canvas, alias, meta);
     wallNode.append(article);
   }
@@ -136,9 +245,9 @@
       page = 1;
       wallNode.replaceChildren();
     }
-    wallStateNode.textContent = language === "es" ? "CARGANDO" : "LOADING";
+    setWallStatus("loading");
     try {
-      const response = await fetch(`/wall?format=json&page=${page}&limit=24`, {
+      const response = await fetch("/wall?format=json&page=" + page + "&limit=24", {
         headers: { Accept: "application/json" }
       });
       if (!response.ok) {
@@ -147,22 +256,27 @@
       const payload = await response.json();
       const postcards = Array.isArray(payload.postcards) ? payload.postcards : [];
       postcards.forEach(drawPostcard);
-      wallStateNode.textContent = postcards.length === 0 && page === 1 ? translated("empty") : translated("loaded");
+      setWallStatus(postcards.length === 0 && page === 1 ? "empty" : "loaded");
       loadMoreNode.hidden = postcards.length < 24;
     } catch (error) {
-      wallStateNode.textContent = translated("wallError");
+      setWallStatus("wallError");
       loadMoreNode.hidden = true;
     }
   }
 
   async function publish() {
+    if (publishing) {
+      return;
+    }
     const alias = aliasNode.value;
     if (!/^[A-Za-z0-9 _-]{0,16}$/.test(alias)) {
       setStatus("invalidAlias");
       return;
     }
+    publishing = true;
+    updateControls();
     setStatus("publishing");
-    const payload = { pixels: pixels.slice() };
+    const payload = { pixels: model.pixels.slice() };
     if (alias.length > 0) {
       payload.alias = alias;
     }
@@ -172,49 +286,161 @@
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload)
       });
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        statusNode.textContent = typeof result.message === "string" ? result.message : `HTTP ${response.status}`;
+        if (result.error === "duplicate_postcard") {
+          setStatus("duplicate");
+        } else if (result.error === "rate_limited") {
+          setStatus("rateLimited");
+        } else {
+          setStatus("publishError");
+        }
         return;
       }
+      storageRemove(DRAFT_KEY);
       setStatus("published");
       await loadWall(true);
     } catch (error) {
-      statusNode.textContent = "NETWORK ERROR";
+      setStatus("networkError");
+    } finally {
+      publishing = false;
+      updateControls();
     }
   }
 
   editor.addEventListener("pointerdown", (event) => {
-    drawing = true;
-    editor.setPointerCapture(event.pointerId);
-    paint(event);
+    const point = pointFromEvent(event);
+    if (point === null) {
+      return;
+    }
+    editor.focus();
+    model.beginStroke(point.x, point.y);
+    drawing = model.tool === "pencil" || model.tool === "eraser";
+    if (drawing) {
+      editor.setPointerCapture(event.pointerId);
+    }
+    editorChanged(!drawing);
   });
   editor.addEventListener("pointermove", (event) => {
-    if (drawing) {
-      paint(event);
+    if (!drawing) {
+      return;
+    }
+    const point = pointFromEvent(event);
+    if (point !== null) {
+      model.continueStroke(point.x, point.y);
+      editorChanged(false);
     }
   });
-  editor.addEventListener("pointerup", () => {
+  function finishStroke() {
+    if (!drawing) {
+      return;
+    }
     drawing = false;
+    model.endStroke();
+    editorChanged(true);
+  }
+  editor.addEventListener("pointerup", finishStroke);
+  editor.addEventListener("pointercancel", finishStroke);
+  editor.addEventListener("focus", drawEditor);
+  editor.addEventListener("blur", drawEditor);
+  editor.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && key === "z") {
+      event.preventDefault();
+      if (event.shiftKey) model.redo(); else model.undo();
+      editorChanged(true);
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && key === "y") {
+      event.preventDefault();
+      model.redo();
+      editorChanged(true);
+      return;
+    }
+    const moves = {
+      arrowleft: [-1, 0],
+      arrowright: [1, 0],
+      arrowup: [0, -1],
+      arrowdown: [0, 1]
+    };
+    if (moves[key]) {
+      event.preventDefault();
+      model.moveCursor(moves[key][0], moves[key][1]);
+      drawEditor();
+      return;
+    }
+    const tools = { p: "pencil", e: "eraser", f: "fill", i: "eyedropper" };
+    if (tools[key]) {
+      event.preventDefault();
+      model.setTool(tools[key]);
+      editorChanged(true);
+      return;
+    }
+    if (/^[0-9a-f]$/.test(key) && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      model.setSelected(parseInt(key, 16));
+      editorChanged(true);
+      return;
+    }
+    if (event.key === "[" || event.key === "]") {
+      event.preventDefault();
+      const delta = event.key === "[" ? -1 : 1;
+      model.setSelected((model.selected + delta + palette.length) % palette.length);
+      editorChanged(true);
+      return;
+    }
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      model.applyAt(model.cursor.x, model.cursor.y);
+      editorChanged(true);
+    }
   });
-  editor.addEventListener("pointercancel", () => {
-    drawing = false;
+
+  toolNodes.forEach((node) => {
+    node.addEventListener("click", () => {
+      model.setTool(node.dataset.tool);
+      editorChanged(true);
+    });
+  });
+  undoNode.addEventListener("click", () => {
+    model.undo();
+    editorChanged(true);
+  });
+  redoNode.addEventListener("click", () => {
+    model.redo();
+    editorChanged(true);
+  });
+  document.getElementById("flip-horizontal").addEventListener("click", () => {
+    model.flipHorizontal();
+    editorChanged(true);
+  });
+  document.getElementById("flip-vertical").addEventListener("click", () => {
+    model.flipVertical();
+    editorChanged(true);
   });
   document.getElementById("clear").addEventListener("click", () => {
-    pixels.fill(0);
-    drawEditor();
+    model.clear();
+    editorChanged(true);
     setStatus("ready");
   });
-  document.getElementById("publish").addEventListener("click", publish);
-  document.getElementById("lang-es").addEventListener("click", () => applyLanguage("es"));
-  document.getElementById("lang-en").addEventListener("click", () => applyLanguage("en"));
+  publishNode.addEventListener("click", publish);
+  aliasNode.addEventListener("input", persistDraft);
+  document.getElementById("lang-es").addEventListener("click", async () => {
+    applyLanguage("es", true);
+    await loadWall(true);
+  });
+  document.getElementById("lang-en").addEventListener("click", async () => {
+    applyLanguage("en", true);
+    await loadWall(true);
+  });
   loadMoreNode.addEventListener("click", async () => {
     page += 1;
     await loadWall(false);
   });
 
   buildPalette();
+  applyLanguage(language, false);
   drawEditor();
-  applyLanguage("es");
+  updateControls();
   loadWall(true);
 })();

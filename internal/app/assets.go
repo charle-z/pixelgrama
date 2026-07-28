@@ -9,7 +9,7 @@ import (
 	"html/template"
 )
 
-//go:embed web/index.html web/style.css web/app.js
+//go:embed web/index.html web/style.css web/editor.js web/app.js
 var webFiles embed.FS
 
 type pageData struct {
@@ -29,10 +29,15 @@ func buildPage(commit, repoURL, prURL string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read embedded style: %w", err)
 	}
-	script, err := webFiles.ReadFile("web/app.js")
+	editorScript, err := webFiles.ReadFile("web/editor.js")
 	if err != nil {
-		return nil, "", fmt.Errorf("read embedded script: %w", err)
+		return nil, "", fmt.Errorf("read embedded editor script: %w", err)
 	}
+	appScript, err := webFiles.ReadFile("web/app.js")
+	if err != nil {
+		return nil, "", fmt.Errorf("read embedded application script: %w", err)
+	}
+	script := append(append(append([]byte(nil), editorScript...), '\n'), appScript...)
 
 	pageTemplate, err := template.New("wall").Parse(string(index))
 	if err != nil {

@@ -65,6 +65,8 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:18080/healthz | jq -e '.status == "ok"'
           curl --fail --silent http://127.0.0.1:18080/readyz | jq -e '.status == "ready"'
+          curl --fail --silent http://127.0.0.1:18080/wall | grep -q 'id="tool-pencil"'
+          curl --fail --silent http://127.0.0.1:18080/wall | grep -q 'pixelgrama:draft'
           docker exec pixelgrama-smoke /usr/local/bin/pixelgrama backup --output /data/image-smoke-backup.db
           payload="$(jq -nc '{pixels: [range(0; 256) | . % 16], alias: "IMAGE"}')"
           postcard_id="$(curl --fail --silent --show-error \
