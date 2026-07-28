@@ -11,7 +11,7 @@ import (
 	"github.com/charle-z/pixelgrama/internal/core"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 var (
 	ErrFutureSchema = errors.New("database schema is newer than this binary")
@@ -71,6 +71,33 @@ BEGIN
     SELECT RAISE(ABORT, 'invalid postcard content identity');
 END;`
 
+const schemaV4 = `
+ALTER TABLE postcards ADD COLUMN palette_catalog_id TEXT NOT NULL DEFAULT 'vga16'
+    CHECK(palette_catalog_id IN ('vga16', 'grayscale16', 'sunset16'));
+ALTER TABLE postcards ADD COLUMN palette_version INTEGER NOT NULL DEFAULT 1
+    CHECK(palette_version = 1);
+CREATE INDEX postcards_palette_idx ON postcards(palette_catalog_id, palette_version, id DESC);
+CREATE TRIGGER postcards_palette_identity_insert
+BEFORE INSERT ON postcards
+WHEN NOT (
+    (NEW.palette_catalog_id = 'vga16' AND NEW.palette_version = 1)
+    OR (NEW.palette_catalog_id = 'grayscale16' AND NEW.palette_version = 1)
+    OR (NEW.palette_catalog_id = 'sunset16' AND NEW.palette_version = 1)
+)
+BEGIN
+    SELECT RAISE(ABORT, 'invalid postcard palette identity');
+END;
+CREATE TRIGGER postcards_palette_identity_update
+BEFORE UPDATE OF palette_catalog_id, palette_version ON postcards
+WHEN NOT (
+    (NEW.palette_catalog_id = 'vga16' AND NEW.palette_version = 1)
+    OR (NEW.palette_catalog_id = 'grayscale16' AND NEW.palette_version = 1)
+    OR (NEW.palette_catalog_id = 'sunset16' AND NEW.palette_version = 1)
+)
+BEGIN
+    SELECT RAISE(ABORT, 'invalid postcard palette identity');
+END;`
+
 func (s *Store) migrate(ctx context.Context) error {
 	version, err := s.SchemaVersion(ctx)
 	if err != nil {
@@ -89,6 +116,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			schema = schemaV2
 		case 3:
 			schema = schemaV3
+		case 4:
+			schema = schemaV4
 		default:
 			return fmt.Errorf("missing sqlite migration for version %d", nextVersion)
 		}
@@ -154,7 +183,7 @@ func populateContentIdentity(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
 UPDATE postcards
 SET content_hash = ?, format_version = ?, palette_id = ?
-WHERE id = ?`, core.ContentHash(item.pixels), core.FormatVersion, core.PaletteID, item.id); err != nil {
+WHERE id = ?`, core.ContentHash(item.pixels), core.FormatVersion, core.DefaultPaletteID, item.id); err != nil {
 			return err
 		}
 	}

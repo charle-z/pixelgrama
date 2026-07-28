@@ -144,6 +144,26 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, challenge.ForDate(s.now()))
+	case "/palettes":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is allowed")
+			return
+		}
+		s.writeJSON(w, http.StatusOK, core.Catalog())
+	case "/stats":
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			s.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is allowed")
+			return
+		}
+		week := isoWeekFor(s.now())
+		stats, err := s.store.PublicStats(r.Context(), week.Start, week.End, week.Key)
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "storage_error", "public statistics could not be loaded")
+			return
+		}
+		s.writeJSON(w, http.StatusOK, stats)
 	case "/readyz":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
@@ -190,9 +210,11 @@ func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 
 	var payload struct {
-		Pixels   json.RawMessage `json:"pixels"`
-		Alias    *string         `json:"alias,omitempty"`
-		ParentID *int64          `json:"parent_id,omitempty"`
+		Pixels         json.RawMessage `json:"pixels"`
+		Alias          *string         `json:"alias,omitempty"`
+		ParentID       *int64          `json:"parent_id,omitempty"`
+		PaletteID      *string         `json:"palette_id,omitempty"`
+		PaletteVersion *int            `json:"palette_version,omitempty"`
 	}
 	if err := decoder.Decode(&payload); err != nil {
 		s.writeDecodeError(w, err)
@@ -226,6 +248,20 @@ func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusUnprocessableEntity, "invalid_alias", err.Error())
 		return
 	}
+	paletteID := core.DefaultPaletteID
+	paletteVersion := core.DefaultPaletteVersion
+	if (payload.PaletteID == nil) != (payload.PaletteVersion == nil) {
+		s.writeError(w, http.StatusUnprocessableEntity, "invalid_palette", "palette_id and palette_version must be provided together")
+		return
+	}
+	if payload.PaletteID != nil {
+		paletteID = *payload.PaletteID
+		paletteVersion = *payload.PaletteVersion
+		if err := core.ValidatePalette(paletteID, paletteVersion); err != nil {
+			s.writeError(w, http.StatusUnprocessableEntity, "invalid_palette", err.Error())
+			return
+		}
+	}
 	if !s.limiter.Allow(s.clientIP(r)) {
 		retrySeconds := int((s.rateLimitWindow + time.Second - 1) / time.Second)
 		w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
@@ -233,7 +269,7 @@ func (s *server) handlePostcard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := s.store.InsertWithParent(r.Context(), pixels, payload.Alias, s.commit, s.now(), payload.ParentID)
+	item, err := s.store.InsertWithPalette(r.Context(), pixels, payload.Alias, s.commit, s.now(), paletteID, paletteVersion, payload.ParentID)
 	if errors.Is(err, store.ErrParentNotFound) {
 		s.writeError(w, http.StatusUnprocessableEntity, "invalid_parent", "parent postcard is not public")
 		return

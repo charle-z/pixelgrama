@@ -5,8 +5,11 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html/template"
+
+	"github.com/charle-z/pixelgrama/internal/core"
 )
 
 //go:embed web/index.html web/postcard.html web/weekly.html web/style.css web/editor.js web/app.js
@@ -37,7 +40,15 @@ func buildPage(commit, repoURL, prURL string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read embedded application script: %w", err)
 	}
-	script := append(append(append([]byte(nil), editorScript...), '\n'), appScript...)
+	catalogJSON, err := json.Marshal(core.Catalog())
+	if err != nil {
+		return nil, "", fmt.Errorf("encode palette catalog: %w", err)
+	}
+	script := append([]byte("globalThis.PixelgramaPaletteCatalog="), catalogJSON...)
+	script = append(script, ';', '\n')
+	script = append(script, editorScript...)
+	script = append(script, '\n')
+	script = append(script, appScript...)
 
 	pageTemplate, err := template.New("wall").Parse(string(index))
 	if err != nil {

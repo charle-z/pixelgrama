@@ -67,6 +67,8 @@ jobs:
             | jq -e '.status == "ready"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/challenge \
             | jq -e '.catalog_version == 1 and (.date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and (.slug | test("^[a-z0-9]+(-[a-z0-9]+)*$")) and (.prompt_es | length > 0) and (.prompt_en | length > 0)'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/palettes \
+            | jq -e '.catalog_version == 1 and (.palettes | map(.id + "@" + (.version | tostring))) == ["vga16@1","grayscale16@1","sunset16@1"] and all(.palettes[]; (.colors | length) == 16)'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'id="daily-challenge"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
@@ -77,6 +79,10 @@ jobs:
             | grep -q 'fetch("/challenge"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'id="tool-pencil"'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
+            | grep -q 'id="palette-select"'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
+            | grep -q 'id="stats-palettes"'
           docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/wall \
             | grep -q 'pixelgrama:draft'
           docker compose exec --no-TTY pixelgrama /usr/local/bin/pixelgrama backup --output /data/ci-backup.db
@@ -93,17 +99,19 @@ jobs:
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}" \
             | grep -q "wall?remix=${postcard_id}"
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}.json" \
-            | jq -e --argjson id "${postcard_id}" '.id == $id and .format_version == 1 and .palette_id == "vga16" and (.content_hash | test("^[0-9a-f]{64}$"))'
+            | jq -e --argjson id "${postcard_id}" '.id == $id and .format_version == 1 and .palette_id == "vga16" and .palette_version == 1 and (.content_hash | test("^[0-9a-f]{64}$"))'
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${postcard_id}.png" \
             | head -c 8 | od -An -tx1 | tr -d ' \n' | grep -q '^89504e470d0a1a0a$'
-          child_payload="$(jq -nc --argjson parent "${postcard_id}" '{pixels: [range(0; 256) | (. + 1) % 16], alias: "REMIX", parent_id: $parent}')"
+          child_payload="$(jq -nc --argjson parent "${postcard_id}" '{pixels: [range(0; 256) | (. + 1) % 16], alias: "REMIX", parent_id: $parent, palette_id: "sunset16", palette_version: 1}')"
           child_id="$(docker compose exec --no-TTY pixelgrama wget -q -O - \
             --header 'Content-Type: application/json' \
             --post-data "${child_payload}" \
             http://127.0.0.1:8080/postcard | jq -r '.id')"
           test "${child_id}" -gt "${postcard_id}"
           docker compose exec --no-TTY pixelgrama wget -q -O - "http://127.0.0.1:8080/p/${child_id}.json" \
-            | jq -e --argjson parent "${postcard_id}" '.parent_id == $parent'
+            | jq -e --argjson parent "${postcard_id}" '.parent_id == $parent and .palette_id == "sunset16" and .palette_version == 1'
+          docker compose exec --no-TTY pixelgrama wget -q -O - http://127.0.0.1:8080/stats \
+            | jq -e '.schema_version == 1 and .total_postcards == 2 and .postcards_this_week == 2 and .remix_count == 1 and ([.palettes[] | select(.palette_id == "vga16") | .postcards] == [1]) and ([.palettes[] | select(.palette_id == "sunset16") | .postcards] == [1])'
           first_page="$(docker compose exec --no-TTY pixelgrama wget -q -O - 'http://127.0.0.1:8080/wall?format=json&limit=1')"
           first_id="$(printf '%s' "${first_page}" | jq -r '.postcards[0].id')"
           before_id="$(printf '%s' "${first_page}" | jq -r '.next_before_id')"

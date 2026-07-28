@@ -17,10 +17,11 @@ func TestEmbeddedRemixAndReducedWallMetadataContract(t *testing.T) {
 		`new URLSearchParams(window.location.search)`,
 		`/p/" + remixID + ".json`,
 		`payload.parent_id = remixParentID`,
-		`format_version !== 1`,
-		`palette_id !== "vga16"`,
+		`palette_id: model.paletteId`,
+		`normalizePostcard(await response.json())`,
+		`paletteVersion: item.paletteVersion`,
 		`className = "share-link"`,
-		`href = "/p/" + id`,
+		`href = "/p/" + postcard.id`,
 		`parentId`,
 	} {
 		if !strings.Contains(html, required) {

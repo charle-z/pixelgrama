@@ -1,19 +1,81 @@
 "use strict";
 
 ((root, factory) => {
-  const editor = factory();
+  const catalog = root.PixelgramaPaletteCatalog || (typeof module === "object" && module.exports
+    ? require("../../core/palettes.json") : null);
+  const editor = factory(catalog);
   if (typeof module === "object" && module.exports) {
     module.exports = editor;
   }
   root.PixelgramaEditor = editor;
-})(typeof globalThis === "object" ? globalThis : this, () => {
+})(typeof globalThis === "object" ? globalThis : this, (catalogValue) => {
   const WIDTH = 16;
   const HEIGHT = 16;
   const PIXEL_COUNT = WIDTH * HEIGHT;
   const COLOR_COUNT = 16;
   const HISTORY_LIMIT = 64;
-  const DRAFT_VERSION = 2;
+  const DRAFT_VERSION = 3;
   const TOOLS = Object.freeze(["pencil", "eraser", "fill", "eyedropper"]);
+
+  function plainCatalogText(value) {
+    return typeof value === "string"
+      && value.length > 0
+      && Array.from(value).length <= 64
+      && !/[\u0000-\u001f\u007f<>]/.test(value);
+  }
+
+  function normalizePaletteCatalog(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || value.catalog_version !== 1 || !Array.isArray(value.palettes) || value.palettes.length < 1) {
+      return null;
+    }
+    const seen = new Set();
+    const palettes = [];
+    for (const item of value.palettes) {
+      if (!item || typeof item !== "object" || Array.isArray(item)
+        || typeof item.id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.id)
+        || !Number.isInteger(item.version) || item.version < 1
+        || !plainCatalogText(item.name_es) || !plainCatalogText(item.name_en)
+        || !Array.isArray(item.colors) || item.colors.length !== COLOR_COUNT
+        || !item.colors.every((color) => typeof color === "string" && /^#[0-9A-Fa-f]{6}$/.test(color))) {
+        return null;
+      }
+      const key = item.id + "@" + item.version;
+      if (seen.has(key)) {
+        return null;
+      }
+      seen.add(key);
+      palettes.push(Object.freeze({
+        id: item.id,
+        version: item.version,
+        nameES: item.name_es,
+        nameEN: item.name_en,
+        colors: Object.freeze(item.colors.map((color) => color.toUpperCase()))
+      }));
+    }
+    return Object.freeze({
+      catalogVersion: 1,
+      palettes: Object.freeze(palettes)
+    });
+  }
+
+  const PALETTE_CATALOG = normalizePaletteCatalog(catalogValue);
+  if (PALETTE_CATALOG === null) {
+    throw new Error("Pixelgrama palette catalog is invalid");
+  }
+
+  function paletteByID(id, version) {
+    return PALETTE_CATALOG.palettes.find((palette) => palette.id === id && palette.version === version) || null;
+  }
+
+  function validPaletteRef(id, version) {
+    return paletteByID(id, version) !== null;
+  }
+
+  const DEFAULT_PALETTE = paletteByID("vga16", 1);
+  if (DEFAULT_PALETTE === null) {
+    throw new Error("Pixelgrama default palette is missing");
+  }
 
   function validPixels(value) {
     return Array.isArray(value) && value.length === PIXEL_COUNT && value.every((item) => (
@@ -159,6 +221,91 @@
     };
   }
 
+  function normalizePostcard(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || !Number.isSafeInteger(value.id) || value.id < 1
+      || !validPixels(value.pixels)
+      || value.format_version !== 1
+      || !validPaletteRef(value.palette_id, value.palette_version)
+      || typeof value.content_hash !== "string" || !/^[0-9a-f]{64}$/.test(value.content_hash)
+      || typeof value.created_at !== "string" || Number.isNaN(new Date(value.created_at).getTime())) {
+      return null;
+    }
+    if (value.alias !== undefined && (typeof value.alias !== "string"
+      || !/^[A-Za-z0-9 _-]{1,16}$/.test(value.alias))) {
+      return null;
+    }
+    if (value.parent_id !== undefined && (!Number.isSafeInteger(value.parent_id) || value.parent_id < 1)) {
+      return null;
+    }
+    return {
+      id: value.id,
+      pixels: value.pixels.slice(),
+      alias: value.alias || "",
+      createdAt: value.created_at,
+      contentHash: value.content_hash,
+      paletteId: value.palette_id,
+      paletteVersion: value.palette_version,
+      parentId: value.parent_id === undefined ? null : value.parent_id
+    };
+  }
+
+  function nonNegativeInteger(value) {
+    return Number.isSafeInteger(value) && value >= 0;
+  }
+
+  function normalizePublicStats(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || value.schema_version !== 1
+      || typeof value.week_key !== "string" || !/^\d{4}-W\d{2}$/.test(value.week_key)
+      || !nonNegativeInteger(value.total_postcards)
+      || !nonNegativeInteger(value.postcards_this_week)
+      || !nonNegativeInteger(value.remix_count)
+      || !Array.isArray(value.palettes)) {
+      return null;
+    }
+    const counts = new Map();
+    for (const item of value.palettes) {
+      if (!item || typeof item !== "object" || Array.isArray(item)
+        || !validPaletteRef(item.palette_id, item.palette_version)
+        || !nonNegativeInteger(item.postcards)) {
+        return null;
+      }
+      const key = item.palette_id + "@" + item.palette_version;
+      if (counts.has(key)) {
+        return null;
+      }
+      counts.set(key, item.postcards);
+    }
+    if (counts.size !== PALETTE_CATALOG.palettes.length) {
+      return null;
+    }
+    const palettes = PALETTE_CATALOG.palettes.map((palette) => {
+      const key = palette.id + "@" + palette.version;
+      if (!counts.has(key)) {
+        return null;
+      }
+      return {
+        paletteId: palette.id,
+        paletteVersion: palette.version,
+        nameES: palette.nameES,
+        nameEN: palette.nameEN,
+        postcards: counts.get(key)
+      };
+    });
+    if (palettes.some((palette) => palette === null)) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      weekKey: value.week_key,
+      totalPostcards: value.total_postcards,
+      postcardsThisWeek: value.postcards_this_week,
+      remixCount: value.remix_count,
+      palettes
+    };
+  }
+
   function plainChallengeText(value) {
     return typeof value === "string"
       && value.length > 0
@@ -203,7 +350,7 @@
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return null;
     }
-    if ((value.version !== 1 && value.version !== DRAFT_VERSION) || !validPixels(value.pixels)) {
+    if (![1, 2, DRAFT_VERSION].includes(value.version) || !validPixels(value.pixels)) {
       return null;
     }
     if (typeof value.alias !== "string" || !/^[A-Za-z0-9 _-]{0,16}$/.test(value.alias)) {
@@ -216,11 +363,18 @@
       return null;
     }
     let parentId = null;
-    if (value.version === DRAFT_VERSION && value.parentId !== null && value.parentId !== undefined) {
+    if (value.version >= 2 && value.parentId !== null && value.parentId !== undefined) {
       if (!Number.isSafeInteger(value.parentId) || value.parentId < 1) {
         return null;
       }
       parentId = value.parentId;
+    }
+    let palette = DEFAULT_PALETTE;
+    if (value.version === DRAFT_VERSION) {
+      palette = paletteByID(value.paletteId, value.paletteVersion);
+      if (palette === null) {
+        return null;
+      }
     }
     return {
       version: DRAFT_VERSION,
@@ -228,7 +382,9 @@
       alias: value.alias,
       selected: value.selected,
       tool: value.tool,
-      parentId
+      parentId,
+      paletteId: palette.id,
+      paletteVersion: palette.version
     };
   }
 
@@ -242,6 +398,9 @@
         ? options.selected
         : 15;
       this.tool = validTool(options.tool) ? options.tool : "pencil";
+      const palette = paletteByID(options.paletteId, options.paletteVersion) || DEFAULT_PALETTE;
+      this.paletteId = palette.id;
+      this.paletteVersion = palette.version;
       this.cursor = { x: 0, y: 0 };
       this.undoStack = [];
       this.redoStack = [];
@@ -270,6 +429,15 @@
         return false;
       }
       this.tool = value;
+      return true;
+    }
+
+    setPalette(id, version) {
+      if (!validPaletteRef(id, version)) {
+        return false;
+      }
+      this.paletteId = id;
+      this.paletteVersion = version;
       return true;
     }
 
@@ -410,7 +578,9 @@
         alias: safeAlias,
         selected: this.selected,
         tool: this.tool,
-        parentId: safeParentId
+        parentId: safeParentId,
+        paletteId: this.paletteId,
+        paletteVersion: this.paletteVersion
       };
     }
   }
@@ -423,8 +593,15 @@
     HISTORY_LIMIT,
     DRAFT_VERSION,
     TOOLS,
+    PALETTE_CATALOG,
+    DEFAULT_PALETTE,
     EditorModel,
     validPixels,
+    validPaletteRef,
+    paletteByID,
+    normalizePaletteCatalog,
+    normalizePostcard,
+    normalizePublicStats,
     validateDraft,
     formatPostcardDate,
     validCursor,
